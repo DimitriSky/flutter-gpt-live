@@ -1,0 +1,14 @@
+.DS_Store
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules/
+server/storage/
+artifacts/
+**/build/
+**/.dart_tool/
+**/local.properties
+**/*.iml
+**/.idea/
+
+/dist/

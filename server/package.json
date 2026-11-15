@@ -1,0 +1,19 @@
+{
+  "name": "gpt-live-voice-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --env-file-if-exists=.env --watch src/server.js",
+    "test": "node --test test/*.test.js",
+    "smoke:openai": "node --env-file-if-exists=.env scripts/smoke_openai.js",
+    "smoke:live-tool": "node --env-file-if-exists=.env scripts/smoke_live_tool.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
