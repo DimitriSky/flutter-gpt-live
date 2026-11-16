@@ -173,6 +173,9 @@ class BackendApi {
       await request('POST', '/live/$id/heartbeat') as Map<String, dynamic>;
   Future<Map<String, dynamic>> knowledge() async =>
       await request('GET', '/knowledge') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> saveData(String data) async =>
+      await request('POST', '/knowledge/data', {'data': data})
+          as Map<String, dynamic>;
   Future<Map<String, dynamic>> saveRules(String rules) async =>
       await request('POST', '/knowledge/rules', {'rules': rules})
           as Map<String, dynamic>;

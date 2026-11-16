@@ -82,9 +82,19 @@ export function knowledgeFiles(dir) {
 // Atomic replace; the first edit keeps the shipped version as rules.default.md.
 export function writeRules(dir, text) {
   if (typeof text !== 'string' || !text.trim()) throw new RangeError('empty');
+  writeKnowledgeFile(dir, 'rules.md', 'rules.default.md', text);
+}
+
+// The knowledge base may be emptied on purpose; it only has to be text.
+export function writeData(dir, text) {
+  if (typeof text !== 'string') throw new RangeError('empty');
+  writeKnowledgeFile(dir, 'data.txt', 'data.default.txt', text);
+}
+
+function writeKnowledgeFile(dir, name, backupName, text) {
   if (Buffer.byteLength(text) > MAX_KNOWLEDGE_BYTES) throw new RangeError('too_large');
-  const file = resolve(dir, 'rules.md');
-  const backup = resolve(dir, 'rules.default.md');
+  const file = resolve(dir, name);
+  const backup = resolve(dir, backupName);
   if (!existsSync(backup)) copyFileSync(file, backup);
   const temp = `${file}.${randomUUID()}.tmp`;
   const fd = openSync(temp, 'wx', 0o644);

@@ -379,3 +379,37 @@ test('saving rules injects them into loaded Codex threads (#CLI-RULES-LIVE)', as
   assert.match(inject.params.items[0].content[0].text, /пират/);
   assert.ok(codex.calls.some(c => c.method === 'thread/realtime/appendText' && /пират/.test(c.params.text)), 'voice updated too');
 });
+
+test('editing the knowledge base persists, keeps a default copy and updates running work (#KB-EDIT)', async t => {
+  const codex = fakeCodex();
+  const f = await setup(t, { codex });
+  const original = readFileSync(resolve(f.dir, 'data.txt'), 'utf8');
+  // API session: the backend delegation prompt carries the knowledge base.
+  await f.request('/live/session', { conversation_id: 'conversation_a', sdp: 'offer' });
+  const saved = await f.request('/knowledge/data', { data: 'Мой проект называется Project Beta.' });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.data, 'Мой проект называется Project Beta.');
+  assert.equal(saved.body.applied_sessions, 1);
+  assert.equal(readFileSync(resolve(f.dir, 'data.default.txt'), 'utf8'), original);
+  const update = f.sockets[0].sent.find(e => e.type === 'session.update');
+  assert.match(update.session.delegation.responses.instructions, /Project Beta/);
+  assert.equal(f.sockets[0].sent.some(e => e.type === 'session.instructions.append'), false, 'voice rules untouched');
+  // A new session reads the new base.
+  await f.request(`/live/${f.app.store.state.sessions.at(-1).id}/close`, {});
+  await f.request('/live/session', { conversation_id: 'conversation_a', sdp: 'offer' });
+  assert.match(f.sessions.at(-1).delegation.responses.instructions, /Project Beta/);
+  assert.equal((await f.request('/knowledge/data', { data: 'x'.repeat(49000) })).status, 400);
+  assert.equal((await f.request('/knowledge/data', { data: 5 })).status, 400);
+});
+
+test('knowledge base edits reach loaded Codex threads (#KB-EDIT)', async t => {
+  const codex = fakeCodex();
+  const f = await setup(t, { codex });
+  await f.request('/live/session', { conversation_id: 'conversation_a', sdp: 'offer', mode: 'cli' });
+  const saved = await f.request('/knowledge/data', { data: 'Любимый цвет — синий.' });
+  assert.equal(saved.body.codex_threads, 1);
+  await tick();
+  const inject = codex.calls.find(c => c.method === 'thread/inject_items');
+  assert.match(inject.params.items[0].content[0].text, /<knowledge>\n.*синий/s);
+  assert.equal(codex.calls.some(c => c.method === 'thread/realtime/appendText'), false, 'voice does not hold the base');
+});

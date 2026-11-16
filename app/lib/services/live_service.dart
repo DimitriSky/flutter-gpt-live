@@ -47,6 +47,7 @@ class LiveService extends ChangeNotifier {
   int _generation = 0;
   bool _disposed = false, _sampling = false;
   Future<void>? _endOperation;
+
   /// Desktop windows lose focus or get covered all the time; a call there
   /// must survive switching apps. Phones end the call when backgrounded.
   static bool get desktop => const {

@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { configuration, knowledgeFiles, writeRules, readKnowledge, textCost, VOICES } from './config.js';
+import { configuration, knowledgeFiles, writeRules, writeData, readKnowledge, textCost, VOICES } from './config.js';
 import { AppError, requireId } from './errors.js';
 import { TaskStore, publicTask } from './task_store.js';
 import { OpenAIAPI } from './agent.js';
@@ -55,6 +55,16 @@ export function createApplication(config, dependencies = {}) {
         const knowledge = readKnowledge(config.configDir);
         const applied = live.applyRules(knowledge);
         console.log(JSON.stringify({ type: 'rules.updated', bytes: Buffer.byteLength(body.rules), ...applied }));
+        return reply(200, { ...knowledgeFiles(config.configDir), ...applied });
+      }
+      if (path === '/knowledge/data') {
+        try { writeData(config.configDir, body.data); } catch (error) {
+          if (error instanceof RangeError) throw new AppError(400, error.message === 'empty' ? 'База знаний должна быть текстом.' : 'База знаний больше 48 KB.', 'invalid_input');
+          throw error;
+        }
+        const knowledge = readKnowledge(config.configDir);
+        const applied = live.applyKnowledge(knowledge, 'data');
+        console.log(JSON.stringify({ type: 'data.updated', bytes: Buffer.byteLength(body.data), ...applied }));
         return reply(200, { ...knowledgeFiles(config.configDir), ...applied });
       }
       if (path === '/tasks') {

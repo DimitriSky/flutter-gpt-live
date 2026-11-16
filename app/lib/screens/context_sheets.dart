@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 
@@ -215,111 +216,6 @@ class _VoiceKey extends StatelessWidget {
   );
 }
 
-// ───────────────────────────── knowledge ─────────────────────────────
-
-class KnowledgeSheet extends StatelessWidget {
-  const KnowledgeSheet({super.key, required this.load});
-  final Future<Map<String, dynamic>> Function() load;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
-    child: FutureBuilder<Map<String, dynamic>>(
-      future: load(),
-      builder: (context, snapshot) {
-        final data = snapshot.data?['data'] as String?;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sheetHeader(context, 'БАЗА ЗНАНИЙ · DATA.TXT'),
-            const SizedBox(height: 6),
-            const Text(
-              'Только просмотр. Ассистент и фоновые задачи получают этот текст в начале каждой сессии. Файл: server/config/data.txt.',
-              style: TextStyle(fontSize: 12, color: _T.muted, height: 1.5),
-            ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: snapshot.hasError
-                  ? _SheetError(snapshot.error.toString())
-                  : data == null
-                  ? const Center(child: CircularProgressIndicator())
-                  : _Document(text: data),
-            ),
-            if (data != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                '${'\n'.allMatches(data.trimRight()).length + 1} СТРОК · ${data.length} СИМВ.',
-                style: _T.label.copyWith(fontSize: 9),
-              ),
-            ],
-          ],
-        );
-      },
-    ),
-  );
-}
-
-/// Read-only document with a line-number gutter, like a hardware readout.
-class _Document extends StatelessWidget {
-  const _Document({required this.text});
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final lines = text.trimRight().split('\n');
-    return Container(
-      decoration: BoxDecoration(
-        color: _T.deck,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Scrollbar(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 18, 18),
-          child: SelectionArea(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final (i, line) in lines.indexed)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 30,
-                          child: SelectionContainer.disabled(
-                            child: Text(
-                              '${i + 1}'.padLeft(2, '0'),
-                              style: _T.mono.copyWith(
-                                fontSize: 11,
-                                height: 1.7,
-                                color: _T.deckMuted,
-                              ),
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            line,
-                            style: _T.mono.copyWith(
-                              fontSize: 13,
-                              height: 1.55,
-                              color: _T.deckText,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SheetError extends StatelessWidget {
   const _SheetError(this.message);
   final String message;
@@ -340,25 +236,80 @@ class _SheetError extends StatelessWidget {
   );
 }
 
-// ───────────────────────────── instructions ─────────────────────────────
+// ─────────────────────── knowledge base & instructions ───────────────────────
 
-/// Editor for rules.md. Returns a status message after a successful save.
-class RulesSheet extends StatefulWidget {
-  const RulesSheet({
+/// What a [TextFileSheet] edits: the knowledge base or the instructions.
+class TextFileKind {
+  const TextFileKind({
+    required this.field,
+    required this.title,
+    required this.liveHint,
+    required this.idleHint,
+    required this.note,
+    required this.savedLive,
+    required this.savedLivePartial,
+    required this.savedLater,
+    this.allowEmpty = false,
+  });
+  final String field, title, liveHint, idleHint, note;
+  final String savedLive, savedLivePartial, savedLater;
+  final bool allowEmpty;
+
+  static const knowledge = TextFileKind(
+    field: 'data',
+    title: 'БАЗА ЗНАНИЙ · DATA.TXT',
+    liveHint:
+        'Разговор идёт. После сохранения ассистент сразу будет отвечать по новой базе.',
+    idleHint:
+        'Сохранённая база применится к следующему разговору и новым задачам.',
+    note:
+        'Ассистент и фоновые задачи получают этот текст целиком, как данные, а не как инструкции. Лимит — 48 KB.',
+    savedLive:
+        'База знаний сохранена и передана в текущий разговор — ассистент уже отвечает по ней.',
+    savedLivePartial:
+        'База знаний сохранена. В текущий разговор передана не полностью — целиком применится в следующем.',
+    savedLater:
+        'База знаний сохранена. Применится в следующем разговоре и новых задачах.',
+    allowEmpty: true,
+  );
+
+  static const rules = TextFileKind(
+    field: 'rules',
+    title: 'ИНСТРУКЦИИ · RULES.MD',
+    liveHint:
+        'Разговор идёт. После сохранения ассистент сразу переключится на новые правила.',
+    idleHint:
+        'Сохранённые правила применятся к следующему разговору и новым задачам.',
+    note:
+        'Разделы с заголовками про знания, задачи, анализ или поиск получает backend; остальные — голос.',
+    savedLive:
+        'Инструкции сохранены и переданы в текущий разговор — ассистент уже следует им.',
+    savedLivePartial:
+        'Инструкции сохранены. Backend уже работает по ним; голосу передана только часть — полностью применятся в следующем разговоре.',
+    savedLater: 'Инструкции сохранены. Применятся в следующем разговоре.',
+  );
+}
+
+/// Editor for a backend text file (data.txt or rules.md). Returns a status
+/// message after a successful save; a running call is updated immediately.
+class TextFileSheet extends StatefulWidget {
+  const TextFileSheet({
     super.key,
+    required this.kind,
     required this.load,
     required this.save,
     required this.live,
   });
+  final TextFileKind kind;
   final Future<Map<String, dynamic>> Function() load;
-  final Future<Map<String, dynamic>> Function(String rules) save;
+  final Future<Map<String, dynamic>> Function(String text) save;
   final bool live;
 
   @override
-  State<RulesSheet> createState() => _RulesSheetState();
+  State<TextFileSheet> createState() => _TextFileSheetState();
 }
 
-class _RulesSheetState extends State<RulesSheet> {
+class _TextFileSheetState extends State<TextFileSheet> {
   final text = TextEditingController();
   String? original, error;
   bool saving = false;
@@ -372,7 +323,7 @@ class _RulesSheetState extends State<RulesSheet> {
         .then((value) {
           if (!mounted) return;
           setState(() {
-            original = value['rules'] as String? ?? '';
+            original = value[widget.kind.field] as String? ?? '';
             text.text = original!;
           });
         })
@@ -399,13 +350,13 @@ class _RulesSheetState extends State<RulesSheet> {
       if (!mounted) return;
       final applied = (result['applied_sessions'] as num?)?.toInt() ?? 0;
       final partial = result['partial'] == true;
+      final codexThreads = (result['codex_threads'] as num?)?.toInt() ?? 0;
+      final kind = widget.kind;
       Navigator.pop(
         context,
-        applied > 0
-            ? partial
-                  ? 'Инструкции сохранены. Backend уже работает по ним; голосу передана только часть — полностью применятся в следующем разговоре.'
-                  : 'Инструкции сохранены и переданы в текущий разговор — ассистент уже следует им.'
-            : 'Инструкции сохранены. Применятся в следующем разговоре.',
+        applied > 0 || (kind.field == 'data' && codexThreads > 0 && widget.live)
+            ? (partial ? kind.savedLivePartial : kind.savedLive)
+            : kind.savedLater,
       );
     } catch (e) {
       if (mounted) {
@@ -419,7 +370,8 @@ class _RulesSheetState extends State<RulesSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bytes = text.text.length;
+    final chars = text.text.length;
+    final kb = utf8.encode(text.text).length / 1000;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         22,
@@ -432,7 +384,7 @@ class _RulesSheetState extends State<RulesSheet> {
         children: [
           _sheetHeader(
             context,
-            'ИНСТРУКЦИИ · RULES.MD',
+            widget.kind.title,
             trailing: dirty
                 ? Padding(
                     padding: const EdgeInsets.only(right: 10),
@@ -463,9 +415,7 @@ class _RulesSheetState extends State<RulesSheet> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    widget.live
-                        ? 'Разговор идёт. После сохранения ассистент сразу переключится на новые правила.'
-                        : 'Сохранённые правила применятся к следующему разговору и новым задачам.',
+                    widget.live ? widget.kind.liveHint : widget.kind.idleHint,
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.45,
@@ -477,9 +427,9 @@ class _RulesSheetState extends State<RulesSheet> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Разделы с заголовками про знания, задачи, анализ или поиск получает backend; остальные — голос.',
-            style: TextStyle(fontSize: 11, color: _T.muted, height: 1.45),
+          Text(
+            widget.kind.note,
+            style: const TextStyle(fontSize: 11, color: _T.muted, height: 1.45),
           ),
           const SizedBox(height: 12),
           Expanded(
@@ -515,40 +465,57 @@ class _RulesSheetState extends State<RulesSheet> {
             const SizedBox(height: 10),
             Text(error!, style: const TextStyle(color: _T.alert, fontSize: 12)),
           ],
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          Text(
+            '$chars СИМВ. · ${kb.toStringAsFixed(1)} / 48 KB',
+            style: _T.label.copyWith(
+              fontSize: 9,
+              color: kb > 48 ? _T.alert : _T.muted,
+            ),
+          ),
+          const SizedBox(height: 8),
           Row(
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Text('$bytes СИМВ.', style: _T.label.copyWith(fontSize: 9)),
-              const Spacer(),
               if (dirty)
                 TextButton(
                   onPressed: saving ? null : () => text.text = original!,
                   child: const Text('Отменить правки'),
                 ),
               const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: dirty && !saving && text.text.trim().isNotEmpty
-                    ? _save
-                    : null,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(0, 48),
-                  backgroundColor: widget.live ? _T.go : _T.signal,
-                ),
-                icon: saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+              Flexible(
+                child: FilledButton.icon(
+                  onPressed:
+                      dirty &&
+                          !saving &&
+                          utf8.encode(text.text).length <= 48000 &&
+                          (widget.kind.allowEmpty ||
+                              text.text.trim().isNotEmpty)
+                      ? _save
+                      : null,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    backgroundColor: widget.live ? _T.go : _T.signal,
+                  ),
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Icon(
+                          widget.live
+                              ? Icons.bolt_rounded
+                              : Icons.check_rounded,
+                          size: 18,
                         ),
-                      )
-                    : Icon(
-                        widget.live ? Icons.bolt_rounded : Icons.check_rounded,
-                        size: 18,
-                      ),
-                label: Text(
-                  widget.live ? 'Сохранить и применить' : 'Сохранить',
+                  label: Text(
+                    widget.live ? 'Применить' : 'Сохранить',
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],

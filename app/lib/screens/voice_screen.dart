@@ -285,7 +285,14 @@ class _VoiceScreenState extends State<VoiceScreen> {
         );
     return Row(
       children: [
-        key(Icons.dataset_outlined, 'База знаний', 'ПРОСМОТР', _showKnowledge),
+        key(
+          Icons.dataset_outlined,
+          'База знаний',
+          controller.live.status == LiveStatus.connected
+              ? 'ПРАВКА В ЭФИРЕ'
+              : 'ПРОСМОТР · ПРАВКА',
+          _showKnowledge,
+        ),
         const SizedBox(width: 10),
         key(
           Icons.edit_document,
@@ -332,13 +339,20 @@ class _VoiceScreenState extends State<VoiceScreen> {
   }
 
   Future<void> _showKnowledge() =>
-      _sheet<void>(KnowledgeSheet(load: controller.knowledge));
+      _editFile(TextFileKind.knowledge, controller.saveData);
 
-  Future<void> _showRules() async {
+  Future<void> _showRules() =>
+      _editFile(TextFileKind.rules, controller.saveRules);
+
+  Future<void> _editFile(
+    TextFileKind kind,
+    Future<Map<String, dynamic>> Function(String) save,
+  ) async {
     final message = await _sheet<String>(
-      RulesSheet(
+      TextFileSheet(
+        kind: kind,
         load: controller.knowledge,
-        save: controller.saveRules,
+        save: save,
         live: controller.live.status == LiveStatus.connected,
       ),
       height: .9,

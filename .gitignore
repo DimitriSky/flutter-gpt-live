@@ -14,3 +14,4 @@ artifacts/
 /dist/
 server/config/rules.default.md
 server/codex-workspace/
+server/config/data.default.txt

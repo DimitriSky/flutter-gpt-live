@@ -99,6 +99,9 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
   /// Saves rules.md on the backend; a running voice session is updated live.
   Future<Map<String, dynamic>> saveRules(String rules) => api.saveRules(rules);
 
+  /// Saves data.txt on the backend; running calls and Codex threads get it now.
+  Future<Map<String, dynamic>> saveData(String data) => api.saveData(data);
+
   void _event(Map<String, dynamic> event) {
     if (_disposed) return;
     if (event['type'] == 'socket.connected') {

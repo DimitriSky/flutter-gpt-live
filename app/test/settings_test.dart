@@ -13,6 +13,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   voiceSwitchTests();
   cliModeTests();
+  knowledgeEditTests();
   test(
     'voice and session limit persist and are sent with a new session',
     () async {
@@ -200,4 +201,31 @@ class _StreamEvents extends TaskEventsService {
   void stop() {}
   @override
   Future<void> dispose() => stream.close();
+}
+
+void knowledgeEditTests() {
+  test(
+    'knowledge base edits are posted to /knowledge/data (#KB-EDIT)',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'backend_token': 'a-trusted-test-token-longer-than-24',
+      });
+      late http.Request seen;
+      final api = BackendApi(
+        await SharedPreferences.getInstance(),
+        client: MockClient((request) async {
+          seen = request;
+          return http.Response(
+            jsonEncode({'data': 'Проект Beta', 'applied_sessions': 1}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      final result = await api.saveData('Проект Beta');
+      expect(seen.url.path, '/knowledge/data');
+      expect(jsonDecode(seen.body), {'data': 'Проект Beta'});
+      expect(result['applied_sessions'], 1);
+    },
+  );
 }
