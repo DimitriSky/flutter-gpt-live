@@ -1,204 +1,92 @@
-# Flutter GPT-Live — Android MVP
+# GPT Live
 
-Прямой full-duplex разговор с `gpt-live-1` по WebRTC, вопросы по локальной базе и независимые текстовые задания через Responses API. После завершения задания открытое приложение показывает имитацию входящего звонка. «Ответить» создаёт новую голосовую сессию с точным сохранённым результатом, «Позже» оставляет результат для чтения.
+A full-duplex voice assistant for Android and macOS. You talk to it, it answers from your knowledge base, runs long tasks in the background and **calls you back** when a result is ready.
 
-Интерфейс оформлен в стиле аппаратной консоли: тёплый «алюминиевый» корпус, тёмный LCD-дисплей со статусом, таймером и сегментными индикаторами уровня (IN — ваш голос, OUT — ассистент), визуализатор-«решётка динамика», которая загорается от громкости, сигнальный оранжевый акцент и моноширинные подписи. На широком экране разговор и фоновые задачи располагаются рядом; на телефоне и в узком окне — друг под другом. Общие цвета и стили находятся в `app/lib/app_theme.dart` (`ConsoleTheme`). Входящий звонок, чтение результата и настройки используют ту же тему.
+Two modes, chosen by the **API | CLI** switch in the app (CLI is the default):
 
-## Быстрый запуск
-
-Нужны Node.js **22.13+** (проверено на 25.9), Flutter **3.44+**, JDK 17, Android SDK 37 и устройство Android 6+ (API 23). Для сервера нужны интернет и API-проект с доступом к `gpt-live-1` и выбранной текстовой модели. ChatGPT Plus не оплачивает API.
-
-```sh
-cd /Volumes/T7/New-projects/voice-live-chat/flutter_gpt_live/server
-npm ci
-cp .env.example .env
-```
-
-Заполните `OPENAI_API_KEY` в `server/.env`. Для `DEV_CLIENT_TOKEN` сгенерируйте случайную строку:
-
-```sh
-node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))'
-```
-
-Вставьте её в `.env`, затем:
-
-```sh
-npm start
-```
-
-По умолчанию пример `.env` слушает `0.0.0.0:8789`. Этот порт выбран, потому что `8787` на рабочем компьютере уже используется. API-ключ остаётся только на сервере. Приоритет переменных окружения выше `.env`, что соответствует стандартному поведению Node.
-
-```sh
-cd ../app
-flutter pub get
-flutter run -d <android-device-id>
-```
-
-В приложении откройте значок настроек подключения:
-
-- Android-эмулятор: `http://10.0.2.2:8789`.
-- Физический Android: `http://<LAN-IP-компьютера>:8789`. Телефон и компьютер должны быть в одной сети; разрешите входящие подключения Node в firewall. `localhost` на телефоне означает сам телефон.
-- `DEV_CLIENT_TOKEN`: та же строка из `.env`. **Не вводите OpenAI API-ключ в приложение.**
-
-На macOS IP можно посмотреть командой `ipconfig getifaddr en0` (имя интерфейса может отличаться). Адрес и dev-токен сохраняются в настройках приложения. Допустимы и `https://` / `wss://` при наличии доверенного сертификата.
-
-Для тестового компьютера локальный `.env` уже настроен во время реализации и исключён из Git. При переносе проекта создайте свой `.env`.
-
-## Сборка APK
-
-```sh
-cd app
-flutter build apk --release
-```
-
-Результат: `app/build/app/outputs/flutter-apk/app-release.apk`. Готовый проверенный пакет также находится в `dist/gpt-live-console-v1.1-2026-11-16-38fdfc53.apk` (в имени — дата и начало SHA-256), исходники без секретов — в `dist/flutter-gpt-live-source.zip`. Для этого локального MVP release подписывается debug-ключом; для магазина нужна собственная подпись. APK собирается без постоянного OpenAI-ключа и без заранее вшитого dev-токена. Подключение задаётся на основном экране после установки.
-
-## Пользовательский сценарий
-
-1. Нажмите **Start Conversation**, дайте разрешение микрофону, дождитесь `Connected`.
-2. Спросите: «Как называется мой проект?» Пример базы содержит **Project Alpha**.
-3. Попросите: «Составь текстовый отчёт по моей базе в фоне и позови меня, когда закончишь». При неоднозначном задании ассистент должен уточнить формулировку. Запуск подтверждается только после записи задачи сервером.
-4. Дождитесь устного подтверждения, затем нажмите **End Conversation**. Сервер посылает `session.close`; соединение сохраняется до `session.closed`, после чего освобождаются транспорт и микрофон. В UI отображается подтверждение завершения. При сетевой ошибке выводится честный статус неподтверждённого закрытия.
-5. Оставьте приложение открытым. Независимый worker выполнит задание, WebSocket сообщит о готовности, появится экран «Входящий звонок» с коротким системным сигналом/вибрацией (зависит от настроек устройства).
-6. **Позже** не включает микрофон. Результат доступен в карточке задачи. **Ответить / Обсудить** загружает реальный результат, затем создаёт новую голосовую сессию с историей и результатом.
-
-Есть сворачиваемое поле «Передать текстовое задание» для длинных инструкций и проверки worker без голосового разговора. Оно использует тот же TaskManager и ту же настоящую модель. Результат можно читать без запуска голоса.
-
-Входящий экран — имитация внутри приложения, без системной телефонии, Firebase, push и фоновых сервисов. При сворачивании приложение закрывает голос и WebSocket; при возвращении заново получает `/tasks`. Готовые результаты, не обработанные кнопкой «Позже»/«Ответить», снова показываются. После блокировки, потери сети или убийства процесса своевременный сигнал не гарантирован.
-
-## Голос, контекст, лимит и расходы
-
-- **Голос.** Карточка «Голос» под визуализатором открывает список из 38 встроенных голосов GPT-Live (`session.audio.output.voice`, по умолчанию `marin`). Голос можно сменить прямо во время разговора. OpenAI фиксирует голос на всю сессию, поэтому приложение заменяет сессию: `POST /live/session` с `replaces: <old id>` — сервер параллельно закрывает старую, а новая получает ту же историю разговора и короткую инструкцию продолжить с того же места. Пауза — несколько секунд на подключение. Таймер, лимит и расходы продолжаются, а не начинаются заново.
-- **База знаний.** Кнопка «База знаний» открывает редактор `server/config/data.txt` прямо в приложении (до 48 KB; можно и очистить). Сохранение атомарное; при первой правке исходник копируется в `server/config/data.default.txt` (в Git не попадает). Если разговор идёт, новая база сразу уходит туда, где она нужна: в режиме API — в инструкции backend через `session.update`, в режиме CLI — в загруженные треды Codex через `thread/inject_items`. Голосу база не передаётся — он и раньше получал только правила разговора. Уже запущенные фоновые задачи сохраняют свой снимок.
-- **Инструкции.** Кнопка «Инструкции» открывает редактор `server/config/rules.md`. Сохранение перезаписывает файл атомарно; при первой правке исходник копируется в `server/config/rules.default.md` (в Git не попадает). Если разговор идёт, сервер сразу:
-  - заменяет инструкции backend через `session.update` (`delegation.responses.instructions`);
-  - передаёт голосовой модели новые разговорные правила через `session.instructions.append` (части до ~800 символов, лимит API — 500 токенов на событие). Стартовые `instructions` у GPT-Live неизменяемы, поэтому новые правила добавляются поверх с явной пометкой «заменяют прежние». Если правила длиннее ~9600 символов, голосу они полностью применятся только в следующем разговоре (UI сообщит об этом).
-  Уже запущенные фоновые задачи сохраняют свой снимок правил; новые задачи из текущего разговора получают обновлённые.
-- **Лимит разговора.** По умолчанию 5 минут, меняется в настройках подключения (1–30 мин). Приложение само завершает сессию по лимиту; за ~15 с до конца сервер просит ассистента коротко попрощаться. Сервер дополнительно закрывает сессию через лимит + 5 с, даже если приложение пропало (верхняя граница — `MAX_LIVE_SECONDS`).
-- **Расходы.** Слева от таймера — оценка стоимости текущей сессии: голос по `PRICE_LIVE_PER_MINUTE` (по умолчанию $0.05/мин, посекундно) плюс токены backend-делегирования, о которых сообщил GPT-Live. В настройках — «Потрачено всего»: все сессии, делегирование и фоновые задачи (тарифы `PRICE_TEXT_*`, по умолчанию gpt-6-luna). Это оценка; точная сумма — в биллинге OpenAI.
-
-## Режим API | CLI
-
-Переключатель над карточками «Голос» и «Лимит» выбирает, кто ведёт разговор. Режим меняется только между разговорами.
-
-- **API**: GPT-Live (`gpt-live-1`) по `OPENAI_API_KEY`, оплата $0.05/мин плюс токены. Всё, что описано выше.
-- **CLI**: голос и агент идут через `codex app-server` на компьютере с сервером, по подписке ChatGPT, которой вошёл Codex (`codex login`). API-ключ не нужен. Нужен codex CLI **0.162+**; проверено на 0.169.0, план Plus.
-  - Голос — Codex realtime **v3** через WebRTC: телефон присылает SDP-предложение, сервер передаёт его в `thread/realtime/start`, ответ приходит событием `thread/realtime/sdp`. Звук идёт напрямую телефон ⇄ OpenAI, как в режиме API.
-  - Работу делает тред Codex: один тред на разговор, он сохраняется и продолжается. Голос сам передаёт задачи агенту. Каждый ход Codex появляется в «Фоновых задачах» с меткой CODEX.
-  - Если ход Codex закончился, когда звонок уже завершён, приложение «звонит». «Ответить» поднимает голос в том же треде, так что весь контекст работы на месте. Результаты, полученные во время разговора, уже озвучены и не звонят.
-  - Голоса — 25 голосов v3 (по умолчанию `cove`), не голоса GPT-Live API.
-  - Инструкции голосу передаются через `initialItems` (роль developer) в `thread/realtime/start`: поле `prompt` в v3 игнорируется (проверено на реальном звонке — с `prompt` голос представлялся «ChatGPT», с `initialItems` следовал роли). Агент Codex получает правила и базу знаний в `developerInstructions` треда.
-  - Правка инструкций во время CLI-разговора: голосу — `thread/realtime/appendText` (developer), загруженным тредам Codex — `thread/inject_items`; оба пути проверены на реальном Codex.
-  - На дисплее вместо «≈$» показано окно лимита Codex за 5 часов, в подсказке — недельное.
-  - Агент работает в `CODEX_CWD` (по умолчанию `server/codex-workspace`, в Git не попадает) с песочницей `CODEX_SANDBOX` (по умолчанию `workspace-write`) и `approvalPolicy: never`: голосом подтверждать нечего, поэтому запросы на подтверждение отклоняются. Подключаются и MCP-серверы из твоего `~/.codex/config.toml`.
-  - **Экспериментально.** `thread/realtime/*` — недокументированная часть Codex (`experimentalApi`), может измениться с обновлением. realtime v3 через websocket для аккаунта закрыт, работает только WebRTC. Код моста: `server/src/codex_bridge.js`.
-
-## Как это устроено
-
-```text
-Android microphone / speaker <── WebRTC audio ──> GPT-Live
-          │                     data channel: captions / lifecycle
-          │ HTTPS SDP                          │
-          ▼                                    │ sideband WebSocket
-       Node.js <───────────────────────────────┘
-          │    native Responses delegation + enqueue_text_task
-          ├── TaskManager ──> Responses API ──> saved report
-          ├── atomic JSON storage: tasks, text history, usage, live state
-          └── /events WebSocket ──> Android, even after WebRTC closes
-```
-
-- `POST /v1/live/sessions` получает JSON `session` + `transport: {type: "webrtc", sdp}` и возвращает `session.id`, `transport.sdp`. Дополнительный `session.start` не отправляется, `audio.format` для WebRTC не задаётся.
-- Сервер немедленно подключает `/v1/live/sessions/{id}/attach`. Только сервер исполняет application-owned инструменты. Вложенный `response.output_item.done` передаёт завершённый `function_call`; после постоянной регистрации job сервер отправляет `response.item.create` с `function_call_output` и `response.create` для продолжения.
-- Live сам отвечает на приветствия и перебивания. Для фактов и сложных вопросов используются native Responses delegation и снимок базы в backend-инструкциях. Обычный вопрос не создаёт фоновой задачи.
-- `data.txt` и `rules.md` перечитываются при новой сессии/задаче. Конфигурация голосовой сессии и задачи сохраняет снимок: изменения файлов не подменяют контекст уже запущенной работы. Разделы правил о знаниях/поиске/задачах остаются backend, разговорные разделы идут голосовой модели; исходный файл не переписывается.
-- Worker использует обычный `POST /responses`, без `background: true`, внешних инструментов и shell. Текст результата, API response ID и usage сохраняются. Задание не зависит от жизни Live-сессии.
-- История — ограниченное окно доступных текстовых транскрипций с исходными временными интервалами. Приложение показывает отдельные накапливаемые подписи двух собеседников; это не точная разметка законченных реплик. Аудиозаписи не хранятся. Подробное задание хранится отдельно в задаче.
-- Новая сессия получает последние реплики, текст задания и **полный точный** результат. Для callback дополнительно используются developer-инструкция в `input` и однократный `session.commentary.append` после `session.started`, согласно официальному greeting flow. Наличие подписи/ack не доказывает, что человек услышал звук.
-- Индикаторы речи основаны на WebRTC `audioLevel`, а не на приходе текста. Поддержка уровней зависит от версии WebRTC и устройства; если уровни отсутствуют, индикатор может оставаться пустым.
-
-## Надёжность и ограничения
-
-Хранилище `server/storage/state.json` обновляется атомарным rename после `fsync` файла. Права каталога/файлов: 700/600. Это небольшой однопроцессный MVP, не распределённая очередь. `server.lock` запрещает два сервера с одним storage. Не редактируйте JSON при работающем сервере. Хранилище содержит приватный текст и требует защиты компьютера; шифрование на диске приложение не реализует.
-
-После перезапуска backend задачи `Queued` продолжаются, `Completed` и результаты сохраняются. Прерванные `Running` становятся `Failed` с объяснением: автоматически повторять потенциально оплаченный запрос нельзя. Неоконченные голосовые сессии из хранилища сервер пытается подключить и закрыть при старте.
-
-`idempotency_key` обязателен для HTTP-создания; один ключ с другим содержимым возвращает 409. UI сохраняет ключ при повторной отправке того же текста после ошибки. Голосовой tool дополнительно дедуплицирует одинаковый подтверждённый текст в пределах разговора. Для намеренного повторного выполнения идентичного голосового задания используйте текстовую отправку (новый ключ) либо уточните формулировку. Новый разговор после очистки данных приложения получает новый ID. Если HTTP создания Live оборвался до получения session ID, сервер не может достоверно закрыть неизвестный ID; автоматически повторять такой запрос нельзя. Инициализация WebRTC также может оплачиваться, даже если разговор не состоялся.
-
-По умолчанию: до 2 выполняемых задач, до 20 ожидающих/выполняемых суммарно, 180 секунд на задачу, до 4000 output tokens на API-вызов; файлы знаний до 48 KB каждый, описание задачи до 12000 символов. Большую базу следует сокращать. Это лимиты размера/параллельности/времени, а не гарантированный денежный бюджет: входные токены, reasoning и незавершённые upstream-запросы тоже могут оплачиваться. Настройте spending limits в OpenAI project.
-
-Клиент обновляет lease каждые 10 секунд. Через 45 секунд без heartbeat или через 30 минут сервер закрывает голос. При ошибке sideband разговор завершается, чтобы потерянные tool-события не оставили неуправляемую работу. `session.closed` подтверждает окончательный usage; hangup fallback без этого события сохраняет `Unconfirmed`, интерфейс не обещает подтверждённое прекращение биллинга.
-
-Общий dev-токен и `X-Client-ID` предназначены для **одного доверенного тестового клиента в LAN**, а не для настоящей многопользовательской авторизации. Все владельцы dev-токена доверены и могут подставить другой client ID. HTTP/WSS endpoints проверяют dev-токен; WebSocket не передаёт токен в URL. На Android разрешён cleartext HTTP для LAN-прототипа. Для публичного доступа требуются HTTPS/WSS, полноценная аутентификация, ограничения запросов и безопасное хранение клиентских credentials. Не публикуйте этот сервер в интернет как есть.
-
-## HTTP API
-
-Каждый запрос: `Authorization: Bearer <DEV_CLIENT_TOKEN>`, `X-Client-ID: <stable-client-id>`; для POST — `Content-Type: application/json`.
-
-| Метод | Endpoint | Назначение |
+| | API | CLI |
 |---|---|---|
-| GET | `/health` | Доступность сервера и наличие ключа (без самого ключа) |
-| POST | `/live/session` | `{sdp, conversation_id, task_id?, voice?, max_seconds?, replaces?}` → session/SDP answer + тарифы |
-| POST | `/live/:sessionId/close` | Закрытие и статус finalization |
-| POST | `/live/:sessionId/heartbeat` | Продление lease + текущая оценка стоимости |
-| GET | `/tasks?conversation_id=...` | Список задач клиента, без полного результата |
-| POST | `/tasks` | `{conversation_id,title,description,idempotency_key}` |
-| GET | `/tasks/:taskId` | Полный результат, ошибка, response ID и usage |
-| GET | `/knowledge` | `data.txt`, `rules.md`, список голосов, тарифы |
-| POST | `/knowledge/data` | `{data}` → сохранить базу знаний и применить к идущему разговору и тредам Codex |
-| POST | `/knowledge/rules` | `{rules}` → сохранить и применить к идущему разговору |
-| GET | `/usage` | Оценка расходов: голос, делегирование, задачи, итог |
-| WS | `/events` | `task.created`, `task.running`, `task.completed`, `task.failed`, состояния Live |
+| Voice | GPT-Live (`gpt-live-1`) over WebRTC | Codex realtime v3 over WebRTC |
+| Backend "brain" | Responses API (`gpt-6-luna`) via native delegation | a persistent Codex thread (`codex app-server`) |
+| Billing | OpenAI API key, ≈ $0.05/min + tokens | ChatGPT subscription of the backend machine |
+| Background tasks | `enqueue_text_task` → server worker | Codex turns; finished turns ring the app |
 
-Отмена задач не реализована (необязательна по ТЗ). Не добавлены поиск в интернете, правка кода, внешние приложения, системные звонки и push. Иного STT → LLM → TTS конвейера нет.
+## Quick start
 
-## Проверки
+Requirements: Node.js 22.13+, Flutter 3.44+, JDK 17 + Android SDK (Android), Xcode (macOS). CLI mode also needs codex CLI **0.162+** logged in with ChatGPT (`codex login`).
 
 ```sh
 cd server
-npm test
-# Настоящий платный Responses smoke; нужен работающий backend и .env:
-npm run smoke:openai
-
-cd ../app
-flutter analyze
-flutter test
+npm ci
+cp .env.example .env    # set OPENAI_API_KEY (API mode) and DEV_CLIENT_TOKEN
+npm start               # listens on 0.0.0.0:8789 by default
 ```
 
-`npm test` использует тестовые API/sideband doubles, не расходует API. Проверяет auth/изоляцию, идемпотентность, снимки, JSON recovery, ограничения очереди, настоящий HTTP/WS и формат инструментов, подтверждённое закрытие голоса и независимость worker. `smoke:openai` делает небольшой настоящий вызов по примеру базы и проверяет Project Alpha.
-
-Для отдельной проверки настоящего application-owned tool можно открыть голос в приложении, затем выполнить на сервере `npm run smoke:live-tool`. Этот платный диагностический smoke передаёт backend-текст через trusted sideband, проверяет вызов модели и постоянную регистрацию job, затем **явно закрывает активную голосовую сессию**. Он не заменяет проверку устной просьбы человеком.
-
-Платный Android integration test проверяет реальные OpenAI WebRTC-сессии, закрытие, отчёт, «Позже» и новый разговор с результатом. Запишите JSON **только с BACKEND_URL и DEV_CLIENT_TOKEN** в игнорируемый `artifacts/test-defines.json`, затем:
+Generate a token with `node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))'`.
 
 ```sh
 cd app
-flutter test integration_test/live_flow_test.dart -d <android-device-id> \
-  --dart-define-from-file=../artifacts/test-defines.json
+flutter pub get
+flutter run -d <device>           # Android or macos
 ```
 
-При запуске integration test разрешите микрофон в системном диалоге Android (While using the app). Flutter test может переустанавливать APK и сбрасывать предварительно выданное RECORD_AUDIO; без подтверждения тест будет ждать диалога. Финальный отчёт о выполненных проверках: [TEST_REPORT.md](TEST_REPORT.md).
+In the app open the connection settings and enter the server URL (`http://10.0.2.2:8789` on the Android emulator, `http://<LAN-IP>:8789` on a phone, `http://127.0.0.1:8789` on macOS) and the `DEV_CLIENT_TOKEN`. Never put the OpenAI key into the app.
 
-## Официальные источники
+## Features
 
-Схемы проверены 15.11.2026: [WebRTC GPT-Live](https://developers.openai.com/api/docs/guides/voice-webrtc), [Responses delegation и функции](https://developers.openai.com/api/docs/guides/live-delegation), [sideband](https://developers.openai.com/api/docs/guides/voice-server-controls), [история, greeting и graceful close](https://developers.openai.com/api/docs/guides/live-conversations). Текстовая модель по умолчанию `gpt-6-luna` указана в официальном delegation guide и доступна текущему API-проекту; заменяется через `OPENAI_TEXT_MODEL`.
+- **Console UI**: LCD status display with timer, cost and level meters, speaker-grille visualiser, animated settings.
+- **Voice picker**, switchable mid-call (the session is replaced, the conversation continues).
+- **Knowledge base and instructions editors** in the app. Saving during a call applies immediately: API — `session.update` / `session.instructions.append`; CLI — `thread/realtime/appendText` for the voice and `thread/inject_items` for Codex.
+- **Cost estimate** next to the timer (API) or Codex subscription limits (CLI); total spend in settings.
+- **Per-session time limit** (default 5 min, 1–30).
+- **Incoming call** when a background task finishes after you hung up; "Answer" starts a new session with the exact result (CLI: the same Codex thread).
+- On desktop a call survives switching apps; on Android it ends when the app goes to the background.
 
-Стоимость голоса и backend учитывается раздельно. Проверьте [актуальные цены](https://developers.openai.com/api/docs/pricing) перед использованием; UI показывает длительность, сервер пишет только usage/ID и коды ошибок, без полных приватных разговоров или ключей. Задержка и естественность голоса зависят от модели, сети и устройства.
+## Knowledge base vs instructions
 
-## macOS
+Both live in `server/config/` and are sent to the model as prompt text, not as files it looks up.
 
-Клиент также поддерживает macOS. По умолчанию desktop подключается к `http://127.0.0.1:8789`. Сервер запускается отдельно тем же `npm start`.
+- `rules.md` — **how to behave** (role, style). Conversation sections go to the voice; everything goes to the backend.
+- `data.txt` — **what to know** (facts). Only the backend / Codex receives it, wrapped as data, never as instructions. Limit 48 KB.
+
+These two files are personal and **not tracked by git**. A fresh checkout creates them from `data.example.txt` and `rules.example.md`; the first in-app edit keeps a `*.default.*` copy.
+
+## CLI mode notes
+
+- Uses the experimental `thread/realtime/*` API of `codex app-server` (`experimentalApi`); it may change with Codex updates. Realtime v3 works over WebRTC only.
+- Voice rules are passed as developer `initialItems` (v3 ignores `prompt`).
+- The agent works in `CODEX_CWD` (default `server/codex-workspace`) with `CODEX_SANDBOX` (default `workspace-write`) and `approvalPolicy: never`; MCP servers from `~/.codex/config.toml` are available to it.
+- Bridge code: `server/src/codex_bridge.js`.
+
+## HTTP API
+
+All requests need `Authorization: Bearer <DEV_CLIENT_TOKEN>` and `X-Client-ID`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | server status |
+| POST | `/live/session` | `{sdp, conversation_id, mode?, voice?, max_seconds?, task_id?, replaces?}` → SDP answer |
+| POST | `/live/:id/close` · `/live/:id/heartbeat` | close / keep alive (+ cost or limits) |
+| GET · POST | `/tasks` · `/tasks/:id` | list, create, read background tasks |
+| GET | `/knowledge` | knowledge base, instructions, voices, prices |
+| POST | `/knowledge/data` · `/knowledge/rules` | save and apply to running calls |
+| GET | `/usage` | spend estimate |
+| WS | `/events` | task and live events |
+
+## Reliability and limits
+
+- State is stored in `server/storage/state.json` with atomic fsynced writes; one server per storage directory.
+- After a restart queued tasks continue; interrupted running tasks are marked Failed (paid calls are never retried automatically).
+- The shared dev token is meant for **one trusted client on a LAN**. Do not expose the server to the internet as is.
+- Cost figures are estimates; check OpenAI billing and set spending limits.
+
+## Builds and checks
 
 ```sh
-cd app
-flutter build macos --release
-cd ..
-python3 scripts/check_macos_release.py "app/build/macos/Build/Products/Release/GPT Live.app"
-cd app
-open "build/macos/Build/Products/Release/GPT Live.app"
+cd server && npm test
+cd app && flutter analyze && flutter test
+cd app && flutter build apk --release
+cd app && flutter build macos --release && python3 ../scripts/check_macos_release.py "build/macos/Build/Products/Release/GPT Live.app"
 ```
 
-После обычной сборки укажите DEV_CLIENT_TOKEN в настройках приложения. Локальная сборка на рабочем компьютере использует игнорируемый `artifacts/macos-defines.json` с адресом и dev-токеном; OpenAI API-ключ остаётся на backend.
-
-В macOS доступ к микрофону запрашивает сам WebRTC при Start Conversation / Ответить. В bundle добавлены microphone usage description, audio-input и двусторонние сетевые entitlements. Приложение не включает микрофон при обычном запуске.
-
-Для WebRTC в sandbox нужны **оба** сетевых entitlement: `network.client` и `network.server`, в том числе в **Release.entitlements**. UDP требует двустороннего разрешения; без server HTTP/задачи работают, а голосовое соединение обрывается. `scripts/check_macos_release.py` проверяет разрешения именно подписанного `.app`, описание микрофона и целостность подписи.
+macOS WebRTC needs both `network.client` and `network.server` entitlements in Release builds; the check script verifies the signed bundle. The app icon is generated by `scripts/make_icon.py`.

@@ -70,6 +70,15 @@ export const VOICES = ['alloy', 'ash', 'ballad', 'beacon', 'bossa', 'brise', 'ca
   'meridian', 'nira', 'noeul', 'nuri', 'pearl', 'quartz', 'ripple', 'sage', 'shida', 'shimmer', 'sillage', 'stone',
   'tempo', 'verse', 'vesper', 'willow'];
 
+// data.txt and rules.md are personal and stay out of git; a fresh checkout
+// starts from the committed *.example files.
+export function ensureKnowledgeFiles(dir) {
+  for (const [name, example] of [['data.txt', 'data.example.txt'], ['rules.md', 'rules.example.md']]) {
+    const file = resolve(dir, name), sample = resolve(dir, example);
+    if (!existsSync(file) && existsSync(sample)) copyFileSync(sample, file);
+  }
+}
+
 export function knowledgeFiles(dir) {
   const read = name => {
     const file = resolve(dir, name);

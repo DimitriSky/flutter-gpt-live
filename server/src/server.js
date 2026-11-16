@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { configuration, knowledgeFiles, writeRules, writeData, readKnowledge, textCost, VOICES } from './config.js';
+import { configuration, knowledgeFiles, writeRules, writeData, ensureKnowledgeFiles, readKnowledge, textCost, VOICES } from './config.js';
 import { AppError, requireId } from './errors.js';
 import { TaskStore, publicTask } from './task_store.js';
 import { OpenAIAPI } from './agent.js';
@@ -12,6 +12,7 @@ import { CodexAppServer, CLI_VOICES, CLI_DEFAULT_VOICE } from './codex_bridge.js
 import { mkdirSync } from 'node:fs';
 
 export function createApplication(config, dependencies = {}) {
+  ensureKnowledgeFiles(config.configDir);
   const store = dependencies.store || new TaskStore(config.storageDir);
   const api = dependencies.api || new OpenAIAPI(config);
   const authenticate = request => {

@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { EventEmitter, once } from 'node:events';
 import WebSocket from 'ws';
 import { createApplication } from '../src/server.js';
-import { configuration, readKnowledge } from '../src/config.js';
+import { configuration, readKnowledge, ensureKnowledgeFiles } from '../src/config.js';
 import { TaskStore } from '../src/task_store.js';
 import { sessionConfig } from '../src/live.js';
 import { TaskManager } from '../src/task_worker.js';
@@ -412,4 +412,14 @@ test('knowledge base edits reach loaded Codex threads (#KB-EDIT)', async t => {
   const inject = codex.calls.find(c => c.method === 'thread/inject_items');
   assert.match(inject.params.items[0].content[0].text, /<knowledge>\n.*синий/s);
   assert.equal(codex.calls.some(c => c.method === 'thread/realtime/appendText'), false, 'voice does not hold the base');
+});
+
+test('a fresh checkout creates data.txt and rules.md from the examples', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'gpt-live-config-'));
+  writeFileSync(resolve(dir, 'data.example.txt'), 'Пример базы');
+  writeFileSync(resolve(dir, 'rules.example.md'), '# Роль\nПример');
+  writeFileSync(resolve(dir, 'rules.md'), '# Роль\nЛичное');
+  ensureKnowledgeFiles(dir);
+  assert.equal(readFileSync(resolve(dir, 'data.txt'), 'utf8'), 'Пример базы');
+  assert.equal(readFileSync(resolve(dir, 'rules.md'), 'utf8'), '# Роль\nЛичное', 'existing personal files are never overwritten');
 });
