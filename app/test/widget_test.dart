@@ -27,7 +27,11 @@ void main() {
         reason: 'CLI is the default mode',
       );
       expect(find.text('5 мин'), findsWidgets);
-      expect(find.text('ПОДПИСКА'), findsOneWidget, reason: 'CLI shows subscription, not \$');
+      expect(
+        find.text('ПОДПИСКА'),
+        findsOneWidget,
+        reason: 'CLI shows subscription, not \$',
+      );
       final start = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, 'Start Conversation'),
       );

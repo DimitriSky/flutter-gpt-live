@@ -4,12 +4,104 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:io';
 import 'backend_api.dart';
+import 'call_recorder.dart';
 
 enum LiveStatus { disconnected, connecting, connected, error }
 
 class LiveService extends ChangeNotifier {
-  LiveService(this.api);
+  LiveService(this.api, {CallRecorder? recorder})
+    : recorder = recorder ?? CallRecorder();
+  final CallRecorder recorder;
+
+  // #MIC-MUTE: the microphone track is disabled, so WebRTC sends silence.
+  bool micMuted = false;
+  // #REC (macOS): native stereo recording of the call.
+  bool recording = false, recordingBusy = false;
+  DateTime? recordingStarted;
+  String? lastRecording, recordingError;
+  String? _recordingBase, _transcriptRole, _remoteTrackId;
+  final StringBuffer _recordingTranscript = StringBuffer();
+  String? get _localTrackId {
+    final tracks = _microphone?.getAudioTracks() ?? const <MediaStreamTrack>[];
+    return tracks.isEmpty ? null : tracks.first.id;
+  }
+
+  void setMicMuted(bool muted) {
+    micMuted = muted;
+    for (final track
+        in _microphone?.getAudioTracks() ?? const <MediaStreamTrack>[]) {
+      track.enabled = !muted;
+    }
+    if (muted) inputLevel = 0;
+    if (recording) {
+      unawaited(recorder.setMuted(muted).catchError((Object _) {}));
+    }
+    _notify();
+  }
+
+  Future<void> toggleRecording() =>
+      recording ? stopRecording() : startRecording();
+
+  Future<void> startRecording() async {
+    if (recording || recordingBusy || status != LiveStatus.connected) return;
+    if (!CallRecorder.supported) return;
+    recordingBusy = true;
+    recordingError = null;
+    _notify();
+    try {
+      final dir = await recorder.directory();
+      if (dir == null) throw BackendException('Нет папки для записей.');
+      final now = DateTime.now();
+      String two(int v) => v.toString().padLeft(2, '0');
+      _recordingBase =
+          '$dir/GPT Live ${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}-${two(now.minute)}-${two(now.second)}';
+      final attached = await recorder.start(
+        path: '$_recordingBase.wav',
+        localTrackId: _localTrackId,
+        remoteTrackId: _remoteTrackId,
+      );
+      if (attached['assistantAttached'] == false) {
+        recordingError = 'Звук ассистента пока не подключён к записи.';
+      }
+      if (micMuted) await recorder.setMuted(true);
+      _recordingTranscript.clear();
+      _transcriptRole = null;
+      recording = true;
+      recordingStarted = now;
+    } catch (error) {
+      recordingError = 'Не удалось начать запись: $error';
+    } finally {
+      recordingBusy = false;
+      _notify();
+    }
+  }
+
+  Future<void> stopRecording() async {
+    if (!recording || recordingBusy) return;
+    recordingBusy = true;
+    _notify();
+    try {
+      final result = await recorder.stop();
+      final path = result?['path'] as String?;
+      if (path != null && _recordingBase != null) {
+        final text = _recordingTranscript.toString().trim();
+        if (text.isNotEmpty) {
+          await File('$_recordingBase.txt').writeAsString('$text\n');
+        }
+      }
+      lastRecording = path;
+    } catch (error) {
+      recordingError = 'Не удалось сохранить запись: $error';
+    } finally {
+      recording = false;
+      recordingBusy = false;
+      recordingStarted = null;
+      _notify();
+    }
+  }
+
   final BackendApi api;
   LiveStatus status = LiveStatus.disconnected;
   String? error, sessionId;
@@ -66,6 +158,7 @@ class LiveService extends ChangeNotifier {
   Future<void> start({String? taskId, String? mode}) async {
     if (busy || _disposed) return;
     this.mode = mode ?? api.mode;
+    micMuted = false;
     _carrySeconds = 0;
     _carryUsd = 0;
     limitSeconds = api.sessionMinutes * 60;
@@ -100,6 +193,14 @@ class LiveService extends ChangeNotifier {
     }
     await _connect(replaces: old);
     switching = false;
+    // Keep recording into the same file: re-target the new tracks.
+    if (recording && status == LiveStatus.connected) {
+      unawaited(
+        recorder
+            .attach(localTrackId: _localTrackId, remoteTrackId: _remoteTrackId)
+            .catchError((Object _) {}),
+      );
+    }
     if (status == LiveStatus.error && old != null) {
       unawaited(_closeQuietly(old));
     }
@@ -142,6 +243,11 @@ class LiveService extends ChangeNotifier {
         'audio': true,
         'video': false,
       });
+      if (micMuted) {
+        for (final track in _microphone!.getAudioTracks()) {
+          track.enabled = false;
+        }
+      }
       if (generation != _generation) return;
       final peer = await createPeerConnection({
         'iceServers': [],
@@ -152,6 +258,7 @@ class LiveService extends ChangeNotifier {
       unawaited(_ready!.future.catchError((Object _) {}));
       peer.onTrack = (event) {
         _remoteStreams.addAll(event.streams);
+        if (event.track.kind == 'audio') _remoteTrackId = event.track.id;
       };
       peer.onConnectionState = (state) {
         if (generation != _generation || closing) return;
@@ -308,6 +415,15 @@ class LiveService extends ChangeNotifier {
   /// Appends caption text (from the data channel or relayed by the backend).
   void addTranscript(String role, String delta) {
     if (delta.isEmpty) return;
+    if (recording) {
+      if (role != _transcriptRole) {
+        _transcriptRole = role;
+        _recordingTranscript.write(
+          '${_recordingTranscript.isEmpty ? '' : '\n\n'}${role == 'user' ? 'Вы' : 'Ассистент'}: ',
+        );
+      }
+      _recordingTranscript.write(delta);
+    }
     if (role == 'user') {
       userTranscript = _tail(userTranscript + delta);
     } else {
@@ -423,6 +539,8 @@ class LiveService extends ChangeNotifier {
   }
 
   Future<void> _end(bool keepError) async {
+    // Finish the file while the tracks still exist.
+    if (recording) await stopRecording();
     closing = true;
     ++_generation;
     _heartbeat?.cancel();

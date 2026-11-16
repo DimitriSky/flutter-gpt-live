@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../models/task.dart';
 import '../services/backend_api.dart';
+import '../services/call_recorder.dart';
 import '../services/live_service.dart';
 import '../voice_controller.dart';
 import 'context_sheets.dart';
@@ -99,13 +100,30 @@ class _VoiceScreenState extends State<VoiceScreen> {
                                     children: [
                                       Expanded(flex: 6, child: _conversation()),
                                       const SizedBox(width: 26),
-                                      Expanded(flex: 5, child: _workspace()),
+                                      Expanded(
+                                        flex: 5,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            _workspace(),
+                                            if (CallRecorder.supported) ...[
+                                              const SizedBox(height: 28),
+                                              _recordings(),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
                                     ],
                                   )
                                 else ...[
                                   _conversation(),
                                   const SizedBox(height: 28),
                                   _workspace(),
+                                  if (CallRecorder.supported) ...[
+                                    const SizedBox(height: 28),
+                                    _recordings(),
+                                  ],
                                 ],
                                 const SizedBox(height: 30),
                                 _footer(),
@@ -412,6 +430,305 @@ class _VoiceScreenState extends State<VoiceScreen> {
       child: Icon(icon, key: ValueKey(icon), size: 19),
     ),
   );
+
+  // ───────────────────── microphone & recording (macOS) ─────────────────────
+
+  static String _clock(Duration d) =>
+      '${d.inMinutes.toString().padLeft(2, '0')}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+
+  Widget _recPill() {
+    final started = controller.live.recordingStarted;
+    final elapsed = started == null
+        ? Duration.zero
+        : DateTime.now().difference(started);
+    return Semantics(
+      label: 'Идёт запись ${_clock(elapsed)}',
+      child: ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: _T.alert.withValues(alpha: .18),
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _led(_T.alert, size: 6, glow: true),
+              const SizedBox(width: 6),
+              Text(
+                'REC',
+                style: _T.mono.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: _T.alert,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _toggleKey({
+    required IconData icon,
+    required String label,
+    required String value,
+    required bool active,
+    required Color activeColor,
+    required String tooltip,
+    required VoidCallback? onTap,
+  }) => Tooltip(
+    message: tooltip,
+    child: Semantics(
+      button: true,
+      toggled: active,
+      label: '$label: $value',
+      child: Material(
+        color: active
+            ? activeColor.withValues(alpha: .14)
+            : _T.body.withValues(alpha: .7),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: onTap == null
+                      ? _T.line
+                      : active
+                      ? activeColor
+                      : _T.muted,
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label, style: _T.label.copyWith(fontSize: 8)),
+                      const SizedBox(height: 1),
+                      Text(
+                        value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: onTap == null
+                              ? _T.muted
+                              : active
+                              ? activeColor
+                              : _T.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _callControls(LiveService live) {
+    final connected = live.status == LiveStatus.connected;
+    final started = live.recordingStarted;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _toggleKey(
+                icon: live.micMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                label: 'МИКРОФОН',
+                value: live.micMuted ? 'Выключен' : 'Включён',
+                active: live.micMuted,
+                activeColor: _T.alert,
+                tooltip: live.micMuted
+                    ? 'Включить микрофон'
+                    : 'Выключить микрофон: ассистент вас не слышит, но разговор продолжается',
+                onTap: connected
+                    ? () => live.setMicMuted(!live.micMuted)
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _toggleKey(
+                icon: live.recording
+                    ? Icons.stop_rounded
+                    : Icons.fiber_manual_record_rounded,
+                label: 'ЗАПИСЬ',
+                value: live.recordingBusy
+                    ? 'Сохраняю…'
+                    : live.recording && started != null
+                    ? 'Идёт · ${_clock(DateTime.now().difference(started))}'
+                    : 'Записать',
+                active: live.recording,
+                activeColor: _T.alert,
+                tooltip: live.recording
+                    ? 'Остановить и сохранить запись'
+                    : 'Записать разговор: вы — левый канал, ассистент — правый',
+                onTap: live.recordingBusy
+                    ? null
+                    : live.recording || connected
+                    ? live.toggleRecording
+                    : null,
+              ),
+            ),
+          ],
+        ),
+        if (live.recordingError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Text(
+              live.recordingError!,
+              style: const TextStyle(fontSize: 11, color: _T.alert),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<List<Recording>>? _recordingsFuture;
+  String? _recordingsKey;
+
+  Widget _recordings() {
+    final recorder = controller.live.recorder;
+    final key = controller.live.lastRecording ?? '';
+    if (_recordingsFuture == null || key != _recordingsKey) {
+      _recordingsKey = key;
+      _recordingsFuture = recorder.list().catchError(
+        (Object _) => <Recording>[],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _section(
+          '03',
+          'ЗАПИСИ',
+          trailing: SizedBox(
+            height: 26,
+            child: TextButton.icon(
+              onPressed: () async {
+                final dir = await recorder.directory();
+                if (dir != null) await recorder.reveal(dir);
+              },
+              icon: const Icon(Icons.folder_open_rounded, size: 15),
+              label: const Text('Папка'),
+            ),
+          ),
+        ),
+        _panel(
+          padding: EdgeInsets.zero,
+          child: FutureBuilder<List<Recording>>(
+            future: _recordingsFuture,
+            builder: (context, snapshot) {
+              final items = snapshot.data ?? const <Recording>[];
+              if (items.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 18, 20, 18),
+                  child: Text(
+                    'Записей пока нет. Во время разговора нажмите «Записать»: сохранится стерео WAV (вы — слева, ассистент — справа) и текст.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _T.muted,
+                      height: 1.5,
+                    ),
+                  ),
+                );
+              }
+              return Column(
+                children: [
+                  for (final (i, item) in items.take(8).indexed) ...[
+                    if (i > 0)
+                      const Divider(
+                        height: 1,
+                        indent: 20,
+                        endIndent: 20,
+                        color: _T.line,
+                      ),
+                    _recordingRow(item, recorder),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _recordingRow(Recording item, CallRecorder recorder) {
+    final m = item.modified;
+    String two(int v) => v.toString().padLeft(2, '0');
+    final transcript = item.transcriptPath;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 10, 10, 10),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: _T.deck,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.graphic_eq_rounded,
+              size: 17,
+              color: _T.signal,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${two(m.day)}.${two(m.month)} · ${two(m.hour)}:${two(m.minute)}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${_clock(item.duration)} · ${(item.bytes / 1e6).toStringAsFixed(1)} MB${transcript == null ? '' : ' · ТЕКСТ'}',
+                  style: _T.label.copyWith(fontSize: 9),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Слушать',
+            onPressed: () => recorder.open(item.path),
+            icon: const Icon(Icons.play_arrow_rounded, size: 20),
+          ),
+          if (transcript != null)
+            IconButton(
+              tooltip: 'Открыть текст',
+              onPressed: () => recorder.open(transcript),
+              icon: const Icon(Icons.subject_rounded, size: 19),
+            ),
+          IconButton(
+            tooltip: 'Показать в Finder',
+            onPressed: () => recorder.reveal(item.path),
+            icon: const Icon(Icons.folder_open_rounded, size: 18),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _footer() => Container(
     padding: const EdgeInsets.only(top: 14),
@@ -757,6 +1074,13 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   ],
                 ),
               ),
+              if (CallRecorder.supported) ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: _callControls(live),
+                ),
+              ],
               const SizedBox(height: 10),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -954,6 +1278,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   ),
                 ),
               ),
+              if (controller.live.recording) ...[
+                const SizedBox(width: 8),
+                _recPill(),
+              ],
               const SizedBox(width: 10),
               Tooltip(
                 message: meterTip,
@@ -1002,7 +1330,15 @@ class _VoiceScreenState extends State<VoiceScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          _meter('IN ', 'Ваш голос', input, _T.go),
+          controller.live.micMuted
+              ? _meter(
+                  'OFF',
+                  'Микрофон выключен',
+                  0,
+                  _T.alert,
+                  codeColor: _T.alert,
+                )
+              : _meter('IN ', 'Ваш голос', input, _T.go),
           const SizedBox(height: 7),
           _meter('OUT', 'Ассистент', output, _T.signal),
           const SizedBox(height: 11),
@@ -1054,7 +1390,13 @@ class _VoiceScreenState extends State<VoiceScreen> {
     );
   }
 
-  Widget _meter(String code, String semantics, double value, Color color) {
+  Widget _meter(
+    String code,
+    String semantics,
+    double value,
+    Color color, {
+    Color? codeColor,
+  }) {
     const segments = 18;
     final lit = (value * segments).round();
     return Semantics(
@@ -1070,7 +1412,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1,
-                  color: value > .06 ? color : _T.deckMuted,
+                  color: codeColor ?? (value > .06 ? color : _T.deckMuted),
                 ),
               ),
             ),

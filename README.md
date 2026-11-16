@@ -41,6 +41,7 @@ In the app open the connection settings and enter the server URL (`http://10.0.2
 - **Per-session time limit** (default 5 min, 1–30).
 - **Incoming call** when a background task finishes after you hung up; "Answer" starts a new session with the exact result (CLI: the same Codex thread).
 - On desktop a call survives switching apps; on Android it ends when the app goes to the background.
+- **macOS only — mute and recording.** Mute disables the microphone track (the assistant keeps talking; API billing continues). **Record** saves the call as a stereo WAV (left = you, right = assistant, 48 kHz) plus a `.txt` transcript in `~/Library/Containers/dev.voicelive.flutterGptLive/Data/Documents/GPT Live Recordings/`; recordings are listed in the app (play, transcript, show in Finder). Works in both modes because it taps the WebRTC audio on the Mac: the assistant track via `RTCAudioTrack.addRenderer`, the microphone via flutter_webrtc's `AudioManager.addLocalAudioRenderer` (after echo cancellation). Muted periods are silent; a voice switch continues the same file. Code: `app/macos/Runner/MainFlutterWindow.swift`, `app/lib/services/call_recorder.dart`; real-call check: `integration_test/recording_test.dart`.
 
 ## Knowledge base vs instructions
 
