@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -12,10 +14,10 @@ import 'package:flutter_gpt_live/voice_controller.dart';
 
 class FakeLive extends LiveService {
   FakeLive(super.api);
-  int starts = 0;
+  int starts = 0, ends = 0;
   String? answeredTask;
   @override
-  Future<void> start({String? taskId}) async {
+  Future<void> start({String? taskId, String? mode}) async {
     starts++;
     answeredTask = taskId;
     status = LiveStatus.connected;
@@ -23,6 +25,7 @@ class FakeLive extends LiveService {
 
   @override
   Future<void> end({bool keepError = false}) async {
+    ends++;
     status = LiveStatus.disconnected;
   }
 }
@@ -154,5 +157,40 @@ void main() {
     expect(await controller.submit('Подготовь отчёт'), isFalse);
     expect(await controller.submit('Подготовь отчёт'), isTrue);
     expect(sent[0]['idempotency_key'], sent[1]['idempotency_key']);
+  });
+
+  // #DESKTOP-KEEPALIVE
+  test(
+    'macOS: switching apps keeps the call and callbacks; quitting ends it',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final (controller, live, _) = await make();
+      await live.start();
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        controller.didChangeAppLifecycleState(state);
+      }
+      expect(live.ends, 0);
+      expect(live.status, LiveStatus.connected);
+      expect(controller.active, isTrue, reason: 'incoming calls still show');
+      await controller.sync();
+      expect(controller.incoming?.id, 'task_1');
+      controller.didChangeAppLifecycleState(AppLifecycleState.detached);
+      expect(live.ends, 1);
+    },
+  );
+
+  test('Android: backgrounding still ends the call', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final (controller, live, _) = await make();
+    await live.start();
+    controller.didChangeAppLifecycleState(AppLifecycleState.hidden);
+    expect(live.ends, 1);
+    expect(controller.active, isFalse);
   });
 }

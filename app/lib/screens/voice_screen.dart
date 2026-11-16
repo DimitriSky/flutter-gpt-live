@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../models/task.dart';
 import '../services/backend_api.dart';
 import '../services/live_service.dart';
 import '../voice_controller.dart';
+import 'context_sheets.dart';
+
+typedef _T = ConsoleTheme;
 
 class VoiceScreen extends StatefulWidget {
   const VoiceScreen({super.key, required this.api, this.controller});
@@ -55,6 +59,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
     }
   }
 
+  static double _norm(double level) => (level * 4).clamp(0.0, 1.0);
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
@@ -71,8 +77,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
                     onRefresh: controller.sync,
                     child: ListView(
                       padding: EdgeInsets.symmetric(
-                        horizontal: wide ? 40 : 22,
-                        vertical: wide ? 24 : 18,
+                        horizontal: wide ? 40 : 18,
+                        vertical: wide ? 26 : 16,
                       ),
                       children: [
                         Center(
@@ -82,44 +88,28 @@ class _VoiceScreenState extends State<VoiceScreen> {
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 _header(wide),
-                                const SizedBox(height: 26),
-                                if (settingsOpen) ...[
-                                  _settings(),
-                                  const SizedBox(height: 24),
-                                ],
+                                const SizedBox(height: 16),
+                                _toolbar(),
+                                const SizedBox(height: 22),
+                                _settingsReveal(),
                                 if (wide)
                                   Row(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
                                       Expanded(flex: 6, child: _conversation()),
-                                      const SizedBox(width: 28),
+                                      const SizedBox(width: 26),
                                       Expanded(flex: 5, child: _workspace()),
                                     ],
                                   )
                                 else ...[
                                   _conversation(),
-                                  const SizedBox(height: 30),
+                                  const SizedBox(height: 28),
                                   _workspace(),
                                 ],
-                                const SizedBox(height: 28),
-                                const Divider(height: 1),
-                                const SizedBox(height: 15),
-                                const Row(
-                                  children: [
-                                    Text(
-                                      'GPT LIVE / ЛИЧНОЕ ПРОСТРАНСТВО',
-                                      style: StudioTheme.label,
-                                    ),
-                                    Spacer(),
-                                    Icon(
-                                      Icons.north_east,
-                                      size: 14,
-                                      color: StudioTheme.muted,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
+                                const SizedBox(height: 30),
+                                _footer(),
+                                const SizedBox(height: 10),
                               ],
                             ),
                           ),
@@ -137,75 +127,310 @@ class _VoiceScreenState extends State<VoiceScreen> {
     ),
   );
 
+  // ───────────────────────────── chrome ─────────────────────────────
+
   Widget _header(bool wide) => Row(
-    crossAxisAlignment: CrossAxisAlignment.center,
     children: [
       Container(
-        width: 42,
-        height: 42,
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
-          color: StudioTheme.orange,
+          color: _T.deck,
           borderRadius: BorderRadius.circular(13),
         ),
-        child: const Icon(
-          Icons.graphic_eq_rounded,
-          color: StudioTheme.surface,
-          size: 24,
+        padding: const EdgeInsets.all(9),
+        child: CustomPaint(
+          painter: _GrillePainter(
+            level: .55,
+            color: _T.signal,
+            idle: _T.deckLine,
+            spacing: 4.4,
+            dot: 1.4,
+          ),
         ),
       ),
       const SizedBox(width: 12),
-      const Expanded(
+      Expanded(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'GPT Live',
               style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -.6,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -.8,
+                height: 1.1,
               ),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 3),
             Text(
-              'Голос и работа в фоне',
-              style: TextStyle(fontSize: 11, color: StudioTheme.muted),
+              'ГОЛОС · ФОНОВЫЕ ЗАДАЧИ',
+              style: _T.label.copyWith(fontSize: 9),
             ),
           ],
         ),
       ),
-      if (wide) ...[
-        const Text('МЕНЬШЕ ШУМА. БОЛЬШЕ МЫСЛИ.', style: StudioTheme.label),
-        const SizedBox(width: 24),
-      ],
-      IconButton.outlined(
+      _squareKey(
         tooltip: 'Подключение',
+        icon: settingsOpen ? Icons.close_rounded : Icons.tune_rounded,
+        active: settingsOpen,
         onPressed: controller.live.busy
             ? null
             : () => setState(() => settingsOpen = !settingsOpen),
-        style: IconButton.styleFrom(
-          side: const BorderSide(color: StudioTheme.line),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-        icon: const Icon(Icons.tune_rounded, size: 19),
       ),
     ],
   );
 
+  /// Settings slide down from under the header and fold back up on close.
+  Widget _settingsReveal() => AnimatedSwitcher(
+    duration: const Duration(milliseconds: 360),
+    reverseDuration: const Duration(milliseconds: 260),
+    switchInCurve: Curves.easeOutCubic,
+    switchOutCurve: Curves.easeInCubic,
+    transitionBuilder: (child, animation) => SizeTransition(
+      sizeFactor: animation,
+      alignment: Alignment.topCenter,
+      child: FadeTransition(
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: const Interval(.25, 1),
+        ),
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(0, -.06),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
+        ),
+      ),
+    ),
+    layoutBuilder: (current, previous) => Stack(
+      fit: StackFit.passthrough,
+      alignment: Alignment.topCenter,
+      children: [...previous, ?current],
+    ),
+    child: settingsOpen
+        ? Padding(
+            key: const ValueKey('settings-open'),
+            padding: const EdgeInsets.only(bottom: 22),
+            child: _settings(),
+          )
+        : const SizedBox(
+            key: ValueKey('settings-closed'),
+            width: double.infinity,
+          ),
+  );
+
+  Widget _toolbar() {
+    final enabled = widget.api.configured;
+    Widget key(IconData icon, String label, String hint, VoidCallback onTap) =>
+        Expanded(
+          child: Material(
+            color: _T.panel,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: enabled ? onTap : null,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _T.line),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: enabled ? _T.deck : _T.line,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(icon, size: 17, color: _T.panel),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: enabled ? _T.ink : _T.muted,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            hint,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: _T.label.copyWith(
+                              fontSize: 8.5,
+                              letterSpacing: .8,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+    return Row(
+      children: [
+        key(Icons.dataset_outlined, 'База знаний', 'ПРОСМОТР', _showKnowledge),
+        const SizedBox(width: 10),
+        key(
+          Icons.edit_document,
+          'Инструкции',
+          controller.live.status == LiveStatus.connected
+              ? 'ПРАВКА В ЭФИРЕ'
+              : 'ПРОСМОТР · ПРАВКА',
+          _showRules,
+        ),
+      ],
+    );
+  }
+
+  Future<T?> _sheet<T>(Widget child, {double height = .86}) =>
+      showModalBottomSheet<T>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        constraints: const BoxConstraints(maxWidth: 760),
+        builder: (context) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * height,
+            child: child,
+          ),
+        ),
+      );
+
+  void _toast(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: _T.deck,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(color: _T.deckText, height: 1.4),
+          ),
+        ),
+      );
+  }
+
+  Future<void> _showKnowledge() =>
+      _sheet<void>(KnowledgeSheet(load: controller.knowledge));
+
+  Future<void> _showRules() async {
+    final message = await _sheet<String>(
+      RulesSheet(
+        load: controller.knowledge,
+        save: controller.saveRules,
+        live: controller.live.status == LiveStatus.connected,
+      ),
+      height: .9,
+    );
+    if (message != null && mounted) _toast(message);
+  }
+
+  /// Mode that the voice chip and display describe: the running session's
+  /// mode during a call, otherwise the selected switch position.
+  String get _mode =>
+      controller.live.busy ? controller.live.mode : widget.api.mode;
+
+  Future<void> _pickVoice() async {
+    final live = controller.live.status == LiveStatus.connected;
+    final current = widget.api.voiceFor(_mode);
+    final voice = await _sheet<String>(
+      VoiceSheet(
+        current: current,
+        live: live,
+        groups: _mode == 'cli' ? cliVoiceGroups : voiceGroups,
+      ),
+      height: .7,
+    );
+    if (voice == null || !mounted || voice == current) return;
+    if (live) {
+      _toast('Переключаю на ${voiceLabel(voice)} — разговор продолжится.');
+    }
+    await controller.setVoice(voice);
+  }
+
+  static String _usd(double value) => value < 0.995
+      ? '\$${value.toStringAsFixed(value < 0.1 ? 3 : 2)}'
+      : '\$${value.toStringAsFixed(2)}';
+
+  Widget _squareKey({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+    bool active = false,
+  }) => IconButton(
+    tooltip: tooltip,
+    onPressed: onPressed,
+    style: IconButton.styleFrom(
+      fixedSize: const Size(44, 44),
+      backgroundColor: active ? _T.ink : _T.panel,
+      foregroundColor: active ? _T.panel : _T.ink,
+      disabledBackgroundColor: _T.panel.withValues(alpha: .5),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+      side: const BorderSide(color: _T.line),
+    ),
+    icon: AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      transitionBuilder: (child, animation) => RotationTransition(
+        turns: Tween(begin: .75, end: 1.0).animate(animation),
+        child: FadeTransition(opacity: animation, child: child),
+      ),
+      child: Icon(icon, key: ValueKey(icon), size: 19),
+    ),
+  );
+
+  Widget _footer() => Container(
+    padding: const EdgeInsets.only(top: 14),
+    decoration: const BoxDecoration(
+      border: Border(top: BorderSide(color: _T.line)),
+    ),
+    child: Row(
+      children: [
+        Text(
+          'GPT LIVE / ЛИЧНАЯ КОНСОЛЬ',
+          style: _T.label.copyWith(fontSize: 9),
+        ),
+        const Spacer(),
+        for (final c in [_T.signal, _T.go, _T.ink])
+          Container(
+            width: 7,
+            height: 7,
+            margin: const EdgeInsets.only(left: 5),
+            decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+          ),
+      ],
+    ),
+  );
+
   Widget _section(String number, String title, {Widget? trailing}) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
+    padding: const EdgeInsets.only(bottom: 12, left: 4, right: 2),
     child: SizedBox(
-      height: 24,
+      height: 26,
       child: Row(
         children: [
-          Text(
-            number,
-            style: StudioTheme.label.copyWith(color: StudioTheme.orange),
-          ),
-          const SizedBox(width: 9),
-          Text(title, style: StudioTheme.label),
+          Text(number, style: _T.label.copyWith(color: _T.signal)),
+          Text(' / ', style: _T.label.copyWith(color: _T.line)),
+          Text(title, style: _T.label.copyWith(color: _T.ink)),
           const Spacer(),
           ?trailing,
         ],
@@ -213,12 +438,178 @@ class _VoiceScreenState extends State<VoiceScreen> {
     ),
   );
 
+  Widget _panel({
+    required Widget child,
+    Color color = _T.panel,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(20),
+    double radius = 24,
+    bool shadow = true,
+  }) => Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      color: color,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: Colors.white.withValues(alpha: .7)),
+      boxShadow: shadow ? _T.raised : null,
+    ),
+    child: child,
+  );
+
+  Widget _led(Color color, {double size = 7, bool glow = false}) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: color,
+      shape: BoxShape.circle,
+      boxShadow: glow
+          ? [BoxShadow(color: color.withValues(alpha: .6), blurRadius: 6)]
+          : null,
+    ),
+  );
+
+  /// Hardware-style two-position switch: API (GPT-Live, API key) | CLI
+  /// (Codex app-server, ChatGPT subscription). Locked during a call.
+  Widget _modeSwitch(bool locked) {
+    final mode = _mode;
+    Widget side(String value, String title, String hint) {
+      final selected = mode == value;
+      return Expanded(
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: 'Режим $title',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: locked || selected ? null : () => controller.setMode(value),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 10),
+              decoration: BoxDecoration(
+                color: selected
+                    ? (value == 'cli' ? _T.go : _T.signal)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    title,
+                    style: _T.mono.copyWith(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 2,
+                      color: selected ? Colors.white : _T.deckMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    hint,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _T.label.copyWith(
+                      fontSize: 7.5,
+                      letterSpacing: .6,
+                      color: selected
+                          ? Colors.white.withValues(alpha: .85)
+                          : _T.deckMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Tooltip(
+      message: locked
+          ? 'Режим меняется между разговорами'
+          : 'API — GPT-Live по ключу API. CLI — Codex по подписке ChatGPT на компьютере с сервером.',
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 200),
+        opacity: locked ? .55 : 1,
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: _T.deck,
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: Row(
+            children: [
+              side('api', 'API', 'GPT-LIVE · \$/МИН'),
+              const SizedBox(width: 4),
+              side('cli', 'CLI', 'CODEX · ПОДПИСКА'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _chip({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String tooltip,
+    required VoidCallback? onTap,
+    IconData? trailing,
+  }) => Tooltip(
+    message: tooltip,
+    child: Material(
+      color: _T.body.withValues(alpha: .7),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
+          child: Row(
+            children: [
+              Icon(icon, size: 17, color: _T.muted),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: _T.label.copyWith(fontSize: 8)),
+                    const SizedBox(height: 1),
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (trailing != null)
+                Icon(
+                  trailing,
+                  size: 16,
+                  color: onTap == null ? _T.line : _T.muted,
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  // ─────────────────────────── conversation ───────────────────────────
+
   Widget _conversation() {
     final live = controller.live;
     final connected = live.status == LiveStatus.connected;
     final connecting = live.status == LiveStatus.connecting;
     final status = live.closing
         ? 'Завершение…'
+        : live.switching
+        ? 'Смена голоса…'
         : switch (live.status) {
             LiveStatus.disconnected => 'Disconnected',
             LiveStatus.connecting => 'Connecting',
@@ -226,145 +617,238 @@ class _VoiceScreenState extends State<VoiceScreen> {
             LiveStatus.error => 'Error',
           };
     final statusColor = live.status == LiveStatus.error
-        ? StudioTheme.red
+        ? _T.alert
         : connected
-        ? StudioTheme.green
-        : StudioTheme.muted;
+        ? _T.go
+        : connecting || live.closing
+        ? _T.signal
+        : _T.deckMuted;
+    final input = _norm(live.inputLevel), output = _norm(live.outputLevel);
+    final speaking = live.outputLevel > .015;
     final title = live.closing
-        ? 'До новой\nмысли.'
+        ? 'До новой мысли.'
+        : live.switching
+        ? 'Меняю голос…'
         : connecting
-        ? 'Одну\nсекунду…'
+        ? 'Одну секунду…'
         : connected
-        ? (live.outputLevel > .015 ? 'Есть\nчто сказать.' : 'Я вас\nслушаю.')
-        : 'Мысли\nвслух.';
+        ? (speaking ? 'Есть что сказать.' : 'Я вас слушаю.')
+        : 'Мысли вслух.';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _section('01', 'РАЗГОВОР'),
-        _card(
-          padding: const EdgeInsets.all(26),
+        _panel(
+          padding: const EdgeInsets.all(14),
+          radius: 30,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  _badge(
-                    status,
-                    statusColor,
-                    connected ? StudioTheme.greenWash : StudioTheme.paper,
-                  ),
-                  const Spacer(),
-                  const Icon(
-                    Icons.schedule_rounded,
-                    size: 14,
-                    color: StudioTheme.muted,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${(live.elapsedSeconds ~/ 60).toString().padLeft(2, '0')}:${(live.elapsedSeconds % 60).toString().padLeft(2, '0')}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: StudioTheme.muted,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ],
+              _display(
+                status: status,
+                statusColor: statusColor,
+                connected: connected,
+                elapsed: live.elapsedSeconds,
+                input: input,
+                output: output,
+                cost: live.costUsd,
+                cli: _mode == 'cli',
+                rateLimits: live.rateLimits,
+                limit: live.busy
+                    ? live.limitSeconds
+                    : widget.api.sessionMinutes * 60,
               ),
-              const SizedBox(height: 28),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: StudioTheme.editorial.copyWith(fontSize: 43),
+              const SizedBox(height: 22),
+              Center(
+                child: Semantics(
+                  label: connected
+                      ? 'Голосовая сессия активна'
+                      : 'Голосовая сессия не активна',
+                  child: SizedBox(
+                    width: 210,
+                    height: 210,
+                    child: CustomPaint(
+                      painter: _GrillePainter(
+                        level: connected
+                            ? math.max(.12, math.max(input, output))
+                            : 0,
+                        color: input > output ? _T.go : _T.signal,
+                        idle: _T.dotOff,
+                        ring: connected ? _T.signal : _T.line,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 14),
-                  _voiceMark(connected: connected, level: live.outputLevel),
-                ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: _T.headline.copyWith(fontSize: 32),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Text(
+                  connected
+                      ? 'Говорите свободно. Можно перебивать, уточнять и думать вместе.'
+                      : 'Начните с идеи, вопроса или просто с того, что сейчас на уме.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.55,
+                    color: _T.muted,
+                  ),
+                ),
               ),
               const SizedBox(height: 18),
-              Text(
-                connected
-                    ? 'Говорите свободно. Можно перебивать, уточнять и думать вместе.'
-                    : 'Начните с идеи, вопроса или просто\nс того, что сейчас на уме.',
-                style: const TextStyle(
-                  fontSize: 13,
-                  height: 1.65,
-                  color: StudioTheme.muted,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: _modeSwitch(live.busy),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _chip(
+                        icon: Icons.record_voice_over_outlined,
+                        label: 'ГОЛОС',
+                        value: voiceLabel(widget.api.voiceFor(_mode)),
+                        tooltip: 'Выбрать голос',
+                        onTap:
+                            live.closing ||
+                                live.switching ||
+                                live.status == LiveStatus.connecting
+                            ? null
+                            : _pickVoice,
+                        trailing: Icons.expand_more_rounded,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _chip(
+                        icon: Icons.timer_outlined,
+                        label: 'ЛИМИТ',
+                        value: '${widget.api.sessionMinutes} мин',
+                        tooltip: 'Изменить лимит в настройках',
+                        onTap: live.busy
+                            ? null
+                            : () => setState(() => settingsOpen = true),
+                        trailing: Icons.tune_rounded,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 26),
-              const Divider(height: 1),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _level(
-                      'ВАШ ГОЛОС',
-                      live.inputLevel,
-                      StudioTheme.orange,
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: live.busy ? null : controller.start,
+                      icon: const Icon(Icons.mic_rounded, size: 20),
+                      label: const Text('Start Conversation'),
                     ),
-                  ),
-                  const SizedBox(width: 24),
-                  Expanded(
-                    child: _level(
-                      'АССИСТЕНТ',
-                      live.outputLevel,
-                      StudioTheme.green,
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: live.busy && !live.closing
+                          ? () => live.end()
+                          : null,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _T.alert,
+                        side: BorderSide(
+                          color: live.busy && !live.closing
+                              ? _T.alert.withValues(alpha: .45)
+                              : _T.line,
+                          width: 1.5,
+                        ),
+                      ),
+                      icon: const Icon(Icons.call_end_rounded, size: 18),
+                      label: const Text('End Conversation'),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: live.busy ? null : controller.start,
-                icon: const Icon(Icons.mic_none_rounded, size: 19),
-                label: const Text('Start Conversation'),
-              ),
-              const SizedBox(height: 9),
-              OutlinedButton.icon(
-                onPressed: live.busy && !live.closing ? () => live.end() : null,
-                icon: const Icon(Icons.call_end_outlined, size: 17),
-                label: const Text('End Conversation'),
-              ),
-              const SizedBox(height: 15),
+              const SizedBox(height: 14),
               Text(
                 live.finalized
-                    ? 'Сессия закрыта. Можно вернуться в любой момент.'
-                    : 'Голос оплачивается всё время подключения',
+                    ? 'СЕССИЯ ЗАКРЫТА · МОЖНО ВЕРНУТЬСЯ'
+                    : _mode == 'cli'
+                    ? 'CODEX · ПО ПОДПИСКЕ CHATGPT, В РАМКАХ ЕЁ ЛИМИТОВ'
+                    : 'ГОЛОС ОПЛАЧИВАЕТСЯ ВСЁ ВРЕМЯ ПОДКЛЮЧЕНИЯ',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 10,
-                  height: 1.5,
-                  color: live.finalized ? StudioTheme.green : StudioTheme.muted,
+                style: _T.label.copyWith(
+                  fontSize: 8.5,
+                  letterSpacing: 1,
+                  color: live.finalized ? _T.go : _T.muted,
                 ),
               ),
+              const SizedBox(height: 6),
             ],
           ),
         ),
-        if (controller.error != null || live.error != null) ...[
+        if (live.notice != null &&
+            !live.busy &&
+            controller.error == null &&
+            live.error == null) ...[
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xfff5e5df),
-              borderRadius: BorderRadius.circular(12),
+              color: _T.signalWash,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _T.signal.withValues(alpha: .25)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Icon(
-                  Icons.info_outline,
+                  Icons.timer_off_outlined,
                   size: 18,
-                  color: StudioTheme.red,
+                  color: _T.signal,
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    live.notice!,
+                    style: const TextStyle(
+                      color: _T.ink,
+                      fontSize: 12,
+                      height: 1.6,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (controller.error != null || live.error != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _T.alertWash,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _T.alert.withValues(alpha: .2)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 5),
+                  child: _led(_T.alert, glow: true),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     controller.error ?? live.error!,
                     style: const TextStyle(
-                      color: StudioTheme.red,
+                      color: _T.alert,
                       fontSize: 12,
                       height: 1.6,
                     ),
@@ -377,24 +861,250 @@ class _VoiceScreenState extends State<VoiceScreen> {
         if (live.userTranscript.isNotEmpty ||
             live.assistantTranscript.isNotEmpty) ...[
           const SizedBox(height: 12),
-          ExpansionTile(
-            tilePadding: const EdgeInsets.symmetric(horizontal: 4),
-            leading: const Icon(Icons.notes_rounded, size: 18),
-            title: const Text(
-              'Текст разговора',
-              style: TextStyle(fontSize: 13),
+          _panel(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            radius: 20,
+            shadow: false,
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+              leading: const Icon(Icons.subject_rounded, size: 18),
+              title: Text(
+                'ТЕКСТ РАЗГОВОРА',
+                style: _T.label.copyWith(color: _T.ink),
+              ),
+              children: [
+                if (live.userTranscript.isNotEmpty)
+                  _transcript('ВЫ', live.userTranscript, _T.go),
+                if (live.assistantTranscript.isNotEmpty)
+                  _transcript('АССИСТЕНТ', live.assistantTranscript, _T.signal),
+              ],
             ),
-            children: [
-              if (live.userTranscript.isNotEmpty)
-                _transcript('ВЫ', live.userTranscript),
-              if (live.assistantTranscript.isNotEmpty)
-                _transcript('АССИСТЕНТ', live.assistantTranscript),
-            ],
           ),
         ],
       ],
     );
   }
+
+  Widget _display({
+    required String status,
+    required Color statusColor,
+    required bool connected,
+    required int elapsed,
+    required double input,
+    required double output,
+    required double cost,
+    required bool cli,
+    required Map<String, dynamic>? rateLimits,
+    required int limit,
+  }) {
+    final primary = rateLimits?['primary'];
+    final secondary = rateLimits?['secondary'];
+    String? percent(Object? window) =>
+        window is Map && window['usedPercent'] is num
+        ? '${(window['usedPercent'] as num).round()}%'
+        : null;
+    final fiveHour = percent(primary), weekly = percent(secondary);
+    final meterText = cli
+        ? (fiveHour == null ? 'ПОДПИСКА' : '5Ч $fiveHour')
+        : '≈${_usd(cost)}';
+    final meterTip = cli
+        ? 'Режим CLI: голос и Codex по подписке ChatGPT. Лимиты Codex: 5 часов — ${fiveHour ?? '—'}, неделя — ${weekly ?? '—'}.'
+        : 'Оценка: голос \$0.05/мин + токены backend, о которых сообщил сервер';
+    String clock(int s) =>
+        '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+    final time = clock(elapsed);
+    final remaining = math.max(0, limit - elapsed);
+    final ending = connected && remaining <= 30;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        color: _T.deck,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              _led(statusColor, glow: connected),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  status,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _T.mono.copyWith(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: connected ? _T.deckText : _T.deckMuted,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Tooltip(
+                message: meterTip,
+                child: Semantics(
+                  label: cli ? meterTip : 'Потрачено примерно ${_usd(cost)}',
+                  child: ExcludeSemantics(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _T.deckRaised,
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: Text(
+                        meterText,
+                        style: _T.mono.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: cli
+                              ? _T.go
+                              : connected || cost > 0
+                              ? _T.deckText
+                              : _T.deckMuted,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                time,
+                style: _T.mono.copyWith(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 1,
+                  color: ending
+                      ? _T.alert
+                      : connected
+                      ? _T.signal
+                      : _T.deckMuted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _meter('IN ', 'Ваш голос', input, _T.go),
+          const SizedBox(height: 7),
+          _meter('OUT', 'Ассистент', output, _T.signal),
+          const SizedBox(height: 11),
+          Semantics(
+            label:
+                'Лимит разговора ${clock(limit)}, осталось ${clock(remaining)}',
+            child: ExcludeSemantics(
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 34,
+                    child: Text(
+                      'LIM',
+                      style: _T.mono.copyWith(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1,
+                        color: ending ? _T.alert : _T.deckMuted,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: limit == 0
+                            ? 0
+                            : (elapsed / limit).clamp(0.0, 1.0),
+                        minHeight: 3,
+                        color: ending ? _T.alert : _T.deckMuted,
+                        backgroundColor: _T.deckRaised,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    connected ? '−${clock(remaining)}' : clock(limit),
+                    style: _T.mono.copyWith(
+                      fontSize: 10,
+                      color: ending ? _T.alert : _T.deckMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _meter(String code, String semantics, double value, Color color) {
+    const segments = 18;
+    final lit = (value * segments).round();
+    return Semantics(
+      label: '$semantics: ${(value * 100).round()}%',
+      child: ExcludeSemantics(
+        child: Row(
+          children: [
+            SizedBox(
+              width: 34,
+              child: Text(
+                code,
+                style: _T.mono.copyWith(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
+                  color: value > .06 ? color : _T.deckMuted,
+                ),
+              ),
+            ),
+            for (var i = 0; i < segments; i++)
+              Expanded(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  height: 7,
+                  margin: const EdgeInsets.symmetric(horizontal: 1.2),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(1.5),
+                    color: i < lit
+                        ? (i >= segments - 3 ? _T.alert : color)
+                        : _T.deckRaised,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _transcript(String name, String text, Color color) => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: _T.body.withValues(alpha: .6),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _led(color, size: 6),
+            const SizedBox(width: 7),
+            Text(name, style: _T.label.copyWith(fontSize: 9)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SelectableText(text, style: const TextStyle(fontSize: 13, height: 1.6)),
+      ],
+    ),
+  );
+
+  // ──────────────────────────── workspace ────────────────────────────
 
   Widget _workspace() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -405,25 +1115,20 @@ class _VoiceScreenState extends State<VoiceScreen> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 5,
-              height: 5,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: controller.eventsConnected
-                    ? StudioTheme.green
-                    : StudioTheme.orange,
-              ),
+            _led(
+              controller.eventsConnected ? _T.go : _T.signal,
+              size: 6,
+              glow: controller.eventsConnected,
             ),
             const SizedBox(width: 6),
             Text(
-              controller.eventsConnected ? 'На связи' : 'Нет связи',
-              style: const TextStyle(fontSize: 10, color: StudioTheme.muted),
+              controller.eventsConnected ? 'НА СВЯЗИ' : 'НЕТ СВЯЗИ',
+              style: _T.label.copyWith(fontSize: 9),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             SizedBox(
-              width: 26,
-              height: 24,
+              width: 28,
+              height: 26,
               child: IconButton(
                 tooltip: 'Обновить задачи',
                 padding: EdgeInsets.zero,
@@ -434,8 +1139,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
           ],
         ),
       ),
-      _card(
-        color: const Color(0xffe9e8dd),
+      _panel(
+        color: _T.deck,
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -445,43 +1151,165 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 Expanded(
                   child: Text(
                     'А пока —\nпоручите рутину.',
-                    style: StudioTheme.editorial.copyWith(fontSize: 29),
+                    style: _T.headline.copyWith(
+                      fontSize: 26,
+                      color: _T.deckText,
+                    ),
                   ),
                 ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: Icon(
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: const BoxDecoration(
+                    color: _T.signal,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
                     Icons.north_east_rounded,
-                    size: 24,
-                    color: StudioTheme.green,
+                    size: 19,
+                    color: Colors.white,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 13),
+            const SizedBox(height: 12),
             const Text(
               'Попросите подготовить отчёт и позвать по готовности. После подтверждения можно завершить разговор.',
-              style: TextStyle(
-                fontSize: 12,
-                color: StudioTheme.muted,
-                height: 1.65,
+              style: TextStyle(fontSize: 12, color: _T.deckMuted, height: 1.6),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Icon(Icons.call_rounded, size: 13, color: _T.go),
+                const SizedBox(width: 7),
+                Text(
+                  'ВЕРНЁМСЯ К ВАМ С РЕЗУЛЬТАТОМ',
+                  style: _T.label.copyWith(fontSize: 9, color: _T.go),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      _panel(
+        padding: EdgeInsets.zero,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              child: Row(
+                children: [
+                  Text('ЖУРНАЛ', style: _T.label.copyWith(fontSize: 9)),
+                  const Spacer(),
+                  Text(
+                    controller.tasks.length.toString().padLeft(2, '0'),
+                    style: _T.label.copyWith(fontSize: 9, color: _T.ink),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 19),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: StudioTheme.surface.withValues(alpha: .65),
-                borderRadius: BorderRadius.circular(6),
+            const Divider(height: 1, color: _T.line),
+            if (controller.tasks.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _T.body,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.inbox_outlined,
+                        color: _T.muted,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Пока пусто',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            'Задачи появятся здесь',
+                            style: TextStyle(fontSize: 12, color: _T.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
+            for (final (i, task) in controller.tasks.indexed) ...[
+              if (i > 0)
+                const Divider(
+                  height: 1,
+                  indent: 20,
+                  endIndent: 20,
+                  color: _T.line,
+                ),
+              _task(task),
+            ],
+            const Divider(height: 1, color: _T.line),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 6),
+                leading: const Icon(
+                  Icons.edit_note_rounded,
+                  size: 21,
+                  color: _T.signal,
+                ),
+                title: const Text(
+                  'Передать текстовое задание',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                childrenPadding: const EdgeInsets.fromLTRB(6, 0, 6, 16),
                 children: [
-                  Icon(Icons.call_outlined, size: 13, color: StudioTheme.green),
-                  SizedBox(width: 7),
-                  Text(
-                    'Вернёмся к вам с результатом',
-                    style: TextStyle(fontSize: 10, color: StudioTheme.green),
+                  TextField(
+                    controller: description,
+                    minLines: 3,
+                    maxLines: 8,
+                    maxLength: 12000,
+                    decoration: const InputDecoration(
+                      hintText:
+                          'Например: составь структурированный отчёт по моей базе знаний.',
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: controller.submitting || !widget.api.configured
+                          ? null
+                          : () async {
+                              if (await controller.submit(description.text)) {
+                                description.clear();
+                              }
+                            },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _T.ink,
+                        minimumSize: const Size(0, 48),
+                      ),
+                      icon: const Icon(Icons.arrow_upward_rounded, size: 17),
+                      label: Text(
+                        controller.submitting
+                            ? 'Отправка…'
+                            : 'Запустить в фоне',
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -489,333 +1317,283 @@ class _VoiceScreenState extends State<VoiceScreen> {
           ],
         ),
       ),
-      const SizedBox(height: 16),
-      if (controller.tasks.isEmpty)
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 18),
-          decoration: BoxDecoration(
-            border: Border.all(color: StudioTheme.line),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.inbox_outlined, color: StudioTheme.muted, size: 25),
-              SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Пока чистый лист',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Задачи появятся здесь',
-                      style: TextStyle(fontSize: 11, color: StudioTheme.muted),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      for (final task in controller.tasks)
-        Padding(padding: const EdgeInsets.only(bottom: 10), child: _task(task)),
       const SizedBox(height: 12),
-      ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 2),
-        leading: const Icon(
-          Icons.edit_note_rounded,
-          size: 21,
-          color: StudioTheme.orange,
+      const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 4),
+        child: Text(
+          'Входящий вызов появится внутри открытого приложения. В фоне и при блокировке сигнал не гарантируется.',
+          style: TextStyle(fontSize: 11, color: _T.muted, height: 1.55),
         ),
-        title: const Text(
-          'Передать текстовое задание',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-        ),
-        children: [
-          TextField(
-            controller: description,
-            minLines: 3,
-            maxLines: 8,
-            maxLength: 12000,
-            decoration: const InputDecoration(
-              hintText:
-                  'Например: составь структурированный отчёт по моей базе знаний.',
-            ),
-          ),
-          const SizedBox(height: 4),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: controller.submitting || !widget.api.configured
-                  ? null
-                  : () async {
-                      if (await controller.submit(description.text)) {
-                        description.clear();
-                      }
-                    },
-              icon: const Icon(Icons.arrow_upward_rounded, size: 17),
-              label: Text(
-                controller.submitting ? 'Отправка…' : 'Запустить в фоне',
-              ),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 10),
-      const Text(
-        'Входящий вызов появится внутри открытого приложения. В фоне и при блокировке сигнал не гарантируется.',
-        style: TextStyle(fontSize: 10, color: StudioTheme.muted, height: 1.6),
       ),
     ],
-  );
-
-  Widget _settings() => _card(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _section('↗', 'ПОДКЛЮЧЕНИЕ'),
-        TextField(
-          controller: url,
-          keyboardType: TextInputType.url,
-          decoration: const InputDecoration(
-            labelText: 'Адрес сервера',
-            hintText: 'http://192.168.1.10:8789',
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: token,
-          obscureText: true,
-          enableSuggestions: false,
-          autocorrect: false,
-          decoration: const InputDecoration(labelText: 'DEV_CLIENT_TOKEN'),
-        ),
-        const SizedBox(height: 14),
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton(
-            onPressed: _configure,
-            child: const Text('Подключиться'),
-          ),
-        ),
-        const SizedBox(height: 10),
-        const Text(
-          'На компьютере — localhost. На телефоне — LAN IP сервера; в Android-эмуляторе — 10.0.2.2.',
-          style: TextStyle(fontSize: 11, color: StudioTheme.muted, height: 1.6),
-        ),
-      ],
-    ),
-  );
-
-  Widget _card({
-    required Widget child,
-    Color color = StudioTheme.surface,
-    EdgeInsetsGeometry padding = const EdgeInsets.all(22),
-  }) => Container(
-    padding: padding,
-    decoration: BoxDecoration(
-      color: color,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: StudioTheme.line.withValues(alpha: .75)),
-    ),
-    child: child,
-  );
-
-  Widget _badge(String text, Color color, Color background) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-    decoration: BoxDecoration(
-      color: background,
-      borderRadius: BorderRadius.circular(6),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 5,
-          height: 5,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w500,
-            color: color,
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _voiceMark({required bool connected, required double level}) =>
-      Semantics(
-        label: connected
-            ? 'Голосовая сессия активна'
-            : 'Голосовая сессия не активна',
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: 100,
-          height: 100,
-          decoration: BoxDecoration(
-            color: StudioTheme.orangeWash,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: StudioTheme.orange.withValues(alpha: connected ? .5 : .12),
-              width: 1 + level.clamp(0, 1) * 4,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              for (final height in [16.0, 32.0, 44.0, 25.0, 13.0])
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 5,
-                  height: height + (connected ? level.clamp(0, 1) * 25 : 0),
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: BoxDecoration(
-                    color: StudioTheme.orange,
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-
-  Widget _level(String label, double value, Color color) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Text(
-            label,
-            style: StudioTheme.label.copyWith(
-              fontSize: 8,
-              letterSpacing: 1.3,
-              color: value > .015 ? color : StudioTheme.muted,
-            ),
-          ),
-          const Spacer(),
-          Icon(
-            Icons.graphic_eq_rounded,
-            size: 12,
-            color: value > .015 ? color : StudioTheme.line,
-          ),
-        ],
-      ),
-      const SizedBox(height: 9),
-      LinearProgressIndicator(
-        value: (value * 4).clamp(0, 1),
-        minHeight: 3,
-        borderRadius: BorderRadius.circular(3),
-        color: color,
-        backgroundColor: StudioTheme.line,
-      ),
-    ],
-  );
-
-  Widget _transcript(String name, String text) => Container(
-    width: double.infinity,
-    margin: const EdgeInsets.only(bottom: 10),
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: StudioTheme.surface,
-      borderRadius: BorderRadius.circular(10),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(name, style: StudioTheme.label.copyWith(fontSize: 9)),
-        const SizedBox(height: 8),
-        SelectableText(text, style: const TextStyle(fontSize: 13, height: 1.6)),
-      ],
-    ),
   );
 
   Widget _task(BackgroundTask task) {
+    final failed = task.status == 'Failed';
     final color = task.completed
-        ? StudioTheme.green
-        : task.status == 'Failed'
-        ? StudioTheme.red
-        : StudioTheme.orange;
-    return _card(
-      padding: const EdgeInsets.fromLTRB(18, 16, 14, 10),
+        ? _T.go
+        : failed
+        ? _T.alert
+        : _T.signal;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(
-                task.completed
-                    ? Icons.check_circle_outline_rounded
-                    : task.status == 'Failed'
-                    ? Icons.error_outline
-                    : Icons.hourglass_top_rounded,
-                size: 14,
-                color: color,
-              ),
-              const SizedBox(width: 7),
+              _led(color, size: 7, glow: !task.terminal),
+              const SizedBox(width: 8),
               Text(
-                task.status,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
+                task.status.toUpperCase(),
+                style: _T.label.copyWith(fontSize: 9, color: color),
               ),
+              if (task.mode == 'cli') ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _T.deck,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                    'CODEX',
+                    style: _T.label.copyWith(fontSize: 8, color: _T.deckText),
+                  ),
+                ),
+              ],
+              if (!task.terminal) ...[
+                const SizedBox(width: 10),
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(strokeWidth: 1.5),
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            task.title,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              height: 1.5,
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Text(
+              task.title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
             ),
           ),
           if (task.error != null)
             Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 8),
+              padding: const EdgeInsets.only(top: 6, bottom: 4, right: 6),
               child: Text(
                 task.error!,
                 style: const TextStyle(
                   fontSize: 12,
-                  color: StudioTheme.muted,
+                  color: _T.muted,
                   height: 1.5,
                 ),
               ),
             ),
           if (task.completed) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Wrap(
-              spacing: 4,
+              spacing: 8,
+              runSpacing: 6,
               children: [
-                TextButton.icon(
+                FilledButton.icon(
                   onPressed: () => controller.answer(task),
-                  icon: const Icon(Icons.call_outlined, size: 14),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _T.go,
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  icon: const Icon(Icons.call_rounded, size: 15),
                   label: const Text('Обсудить'),
                 ),
-                TextButton(
+                OutlinedButton(
                   onPressed: () => _result(task),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   child: const Text('Читать результат'),
                 ),
               ],
             ),
-          ] else
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
+          ],
         ],
       ),
     );
   }
+
+  // ───────────────────────────── settings ─────────────────────────────
+
+  Widget _settings() => _panel(
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Row(
+            children: [
+              Text('00', style: _T.label.copyWith(color: _T.signal)),
+              Text(' / ', style: _T.label.copyWith(color: _T.line)),
+              Text('ПОДКЛЮЧЕНИЕ', style: _T.label.copyWith(color: _T.ink)),
+              const Spacer(),
+              _led(widget.api.configured ? _T.go : _T.signal, size: 6),
+            ],
+          ),
+        ),
+        TextField(
+          controller: url,
+          keyboardType: TextInputType.url,
+          style: _T.mono.copyWith(fontSize: 13),
+          decoration: const InputDecoration(
+            labelText: 'Адрес сервера',
+            hintText: 'http://192.168.1.10:8789',
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: token,
+          obscureText: true,
+          enableSuggestions: false,
+          autocorrect: false,
+          style: _T.mono.copyWith(fontSize: 13),
+          decoration: const InputDecoration(labelText: 'DEV_CLIENT_TOKEN'),
+        ),
+        const SizedBox(height: 14),
+        FilledButton.icon(
+          onPressed: _configure,
+          style: FilledButton.styleFrom(backgroundColor: _T.ink),
+          icon: const Icon(Icons.power_settings_new_rounded, size: 18),
+          label: const Text('Подключиться'),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'На компьютере — localhost. На телефоне — LAN IP сервера; в Android-эмуляторе — 10.0.2.2.',
+          style: TextStyle(fontSize: 11, color: _T.muted, height: 1.55),
+        ),
+        const SizedBox(height: 18),
+        const Divider(height: 1, color: _T.line),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Лимит разговора',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    'Сессия завершится сама, если забыть её выключить.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _T.muted,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            _stepper(),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: _T.deck,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Text(
+                'ПОТРАЧЕНО ВСЕГО',
+                style: _T.label.copyWith(fontSize: 9, color: _T.deckMuted),
+              ),
+              const Spacer(),
+              Text(
+                controller.totalUsd == null
+                    ? '—'
+                    : '≈${_usd(controller.totalUsd!)}',
+                style: _T.mono.copyWith(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: _T.deckText,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Оценка по тарифам для режима API: голос + backend + фоновые задачи. Режим CLI идёт по подписке ChatGPT. Точная сумма — в биллинге OpenAI.',
+          style: TextStyle(fontSize: 10, color: _T.muted, height: 1.5),
+        ),
+      ],
+    ),
+  );
+
+  Widget _stepper() {
+    final minutes = widget.api.sessionMinutes;
+    Widget step(IconData icon, int delta, String tip) => IconButton(
+      tooltip: tip,
+      onPressed:
+          (minutes + delta) < BackendApi.minSessionMinutes ||
+              (minutes + delta) > BackendApi.maxSessionMinutes
+          ? null
+          : () => controller.setSessionMinutes(minutes + delta),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(38, 38),
+        backgroundColor: _T.body,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      ),
+      icon: Icon(icon, size: 18),
+    );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        step(Icons.remove_rounded, -1, 'Меньше на минуту'),
+        SizedBox(
+          width: 62,
+          child: Text(
+            '$minutes мин',
+            textAlign: TextAlign.center,
+            style: _T.mono.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
+          ),
+        ),
+        step(Icons.add_rounded, 1, 'Больше на минуту'),
+      ],
+    );
+  }
+
+  // ────────────────────────────── result ──────────────────────────────
 
   Future<void> _result(BackgroundTask task) async {
     try {
@@ -830,18 +1608,20 @@ class _VoiceScreenState extends State<VoiceScreen> {
           child: SizedBox(
             height: MediaQuery.sizeOf(context).height * .72,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(28, 4, 28, 24),
+              padding: const EdgeInsets.fromLTRB(26, 0, 26, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Text('ГОТОВЫЙ РЕЗУЛЬТАТ', style: StudioTheme.label),
+                      _led(_T.go, size: 7, glow: true),
+                      const SizedBox(width: 8),
+                      Text('ГОТОВЫЙ РЕЗУЛЬТАТ', style: _T.label),
                       const Spacer(),
-                      IconButton(
+                      _squareKey(
                         tooltip: 'Закрыть результат',
+                        icon: Icons.close_rounded,
                         onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close_rounded, size: 18),
                       ),
                     ],
                   ),
@@ -853,14 +1633,14 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         children: [
                           Text(
                             result.title,
-                            style: StudioTheme.editorial.copyWith(fontSize: 29),
+                            style: _T.headline.copyWith(fontSize: 28),
                           ),
-                          const SizedBox(height: 22),
-                          const Divider(height: 1),
-                          const SizedBox(height: 22),
+                          const SizedBox(height: 18),
+                          Container(height: 3, width: 36, color: _T.signal),
+                          const SizedBox(height: 18),
                           SelectableText(
                             result.result ?? 'Результат отсутствует',
-                            style: const TextStyle(fontSize: 14, height: 1.8),
+                            style: const TextStyle(fontSize: 14, height: 1.75),
                           ),
                         ],
                       ),
@@ -878,83 +1658,142 @@ class _VoiceScreenState extends State<VoiceScreen> {
     }
   }
 
+  // ───────────────────────────── incoming ─────────────────────────────
+
   Widget _incoming(BackgroundTask task) => Positioned.fill(
     child: ColoredBox(
-      color: StudioTheme.ink.withValues(alpha: .45),
+      color: _T.deck.withValues(alpha: .62),
       child: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(22),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: _card(
-              padding: const EdgeInsets.all(30),
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 22),
+              decoration: BoxDecoration(
+                color: _T.deck,
+                borderRadius: BorderRadius.circular(32),
+                border: Border.all(color: _T.deckLine),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x55000000),
+                    blurRadius: 40,
+                    offset: Offset(0, 20),
+                  ),
+                ],
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Row(
+                  Row(
                     children: [
-                      Icon(
-                        Icons.call_received_rounded,
-                        size: 15,
-                        color: StudioTheme.orange,
+                      _led(_T.signal, glow: true),
+                      const SizedBox(width: 9),
+                      Text(
+                        'ВХОДЯЩИЙ ЗВОНОК',
+                        style: _T.label.copyWith(color: _T.deckText),
                       ),
-                      SizedBox(width: 8),
-                      Text('ВХОДЯЩИЙ ЗВОНОК', style: StudioTheme.label),
+                      const Spacer(),
+                      Text(
+                        'GPT LIVE',
+                        style: _T.label.copyWith(color: _T.deckMuted),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 30),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      width: 68,
-                      height: 68,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: StudioTheme.greenWash,
-                      ),
-                      child: const Icon(
-                        Icons.task_alt_rounded,
-                        size: 30,
-                        color: StudioTheme.green,
+                  const SizedBox(height: 26),
+                  Center(
+                    child: SizedBox(
+                      width: 150,
+                      height: 150,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          const Positioned.fill(
+                            child: CustomPaint(
+                              painter: _GrillePainter(
+                                level: .78,
+                                color: _T.go,
+                                idle: _T.deckRaised,
+                                ring: _T.go,
+                                spacing: 10,
+                                dot: 3,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: _T.deck,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: _T.go, width: 2),
+                            ),
+                            child: const Icon(
+                              Icons.task_alt_rounded,
+                              size: 26,
+                              color: _T.go,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 25),
+                  const SizedBox(height: 24),
                   Text(
                     'Результат готов',
-                    style: StudioTheme.editorial.copyWith(fontSize: 36),
+                    textAlign: TextAlign.center,
+                    style: _T.headline.copyWith(
+                      fontSize: 32,
+                      color: _T.deckText,
+                    ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   Text(
                     task.title,
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 14,
-                      color: StudioTheme.muted,
-                      height: 1.6,
+                      color: _T.deckMuted,
+                      height: 1.55,
                     ),
                   ),
                   const SizedBox(height: 26),
-                  const Divider(height: 1),
-                  const SizedBox(height: 22),
-                  FilledButton.icon(
-                    onPressed: () => controller.answer(task),
-                    icon: const Icon(Icons.call_outlined, size: 18),
-                    label: const Text('Ответить'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: controller.later,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _T.deckText,
+                            side: const BorderSide(
+                              color: _T.deckLine,
+                              width: 1.5,
+                            ),
+                            minimumSize: const Size(0, 54),
+                          ),
+                          child: const Text('Позже'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => controller.answer(task),
+                          style: FilledButton.styleFrom(backgroundColor: _T.go),
+                          icon: const Icon(Icons.call_rounded, size: 18),
+                          label: const Text('Ответить'),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    onPressed: controller.later,
-                    child: const Text('Позже'),
-                  ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    '«Ответить» начнёт новый голосовой разговор',
+                  const SizedBox(height: 16),
+                  Text(
+                    '«ОТВЕТИТЬ» НАЧНЁТ НОВЫЙ ГОЛОСОВОЙ РАЗГОВОР',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: StudioTheme.muted,
-                      height: 1.6,
+                    style: _T.label.copyWith(
+                      fontSize: 8.5,
+                      letterSpacing: .8,
+                      color: _T.deckMuted,
                     ),
                   ),
                 ],
@@ -965,4 +1804,61 @@ class _VoiceScreenState extends State<VoiceScreen> {
       ),
     ),
   );
+}
+
+/// Speaker-grille visualiser: a circular field of dots that light up from
+/// the centre outward in proportion to [level] (0..1).
+class _GrillePainter extends CustomPainter {
+  const _GrillePainter({
+    required this.level,
+    required this.color,
+    required this.idle,
+    this.ring,
+    this.spacing = 12,
+    this.dot = 3.4,
+  });
+
+  final double level;
+  final Color color, idle;
+  final Color? ring;
+  final double spacing, dot;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.shortestSide / 2;
+    if (ring != null) {
+      canvas.drawCircle(
+        center,
+        radius - 1,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = ring!.withValues(alpha: .35),
+      );
+    }
+    final field = radius - (ring != null ? spacing * .9 : 0);
+    final reach = field * level.clamp(0.0, 1.0);
+    final paint = Paint();
+    final steps = (field / spacing).floor();
+    for (var y = -steps; y <= steps; y++) {
+      for (var x = -steps; x <= steps; x++) {
+        final offset = Offset(x * spacing, y * spacing);
+        final d = offset.distance;
+        if (d > field - dot) continue;
+        final t = reach <= 0
+            ? 0.0
+            : ((reach - d) / spacing + 1).clamp(0.0, 1.0);
+        paint.color = Color.lerp(idle, color, t)!;
+        canvas.drawCircle(center + offset, dot * (1 + .25 * t), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GrillePainter old) =>
+      old.level != level ||
+      old.color != color ||
+      old.idle != idle ||
+      old.ring != ring;
 }

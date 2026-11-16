@@ -29,7 +29,29 @@ class BackendApi {
     conversationId =
         preferences.getString('conversation_id') ?? const Uuid().v4();
   }
+  static const defaultVoice = 'marin', defaultCliVoice = 'cove';
+  static const minSessionMinutes = 1, maxSessionMinutes = 30;
   final SharedPreferences preferences;
+
+  /// 'api' — GPT-Live over the OpenAI API key; 'cli' — Codex app-server on
+  /// the backend machine with the ChatGPT subscription.
+  String get mode =>
+      preferences.getString('voice_mode') == 'cli' ? 'cli' : 'api';
+  Future<void> setMode(String value) =>
+      preferences.setString('voice_mode', value == 'cli' ? 'cli' : 'api');
+  String get voice => preferences.getString('voice') ?? defaultVoice;
+  String get cliVoice => preferences.getString('cli_voice') ?? defaultCliVoice;
+  String voiceFor(String mode) => mode == 'cli' ? cliVoice : voice;
+  Future<void> setVoice(String value) => preferences.setString('voice', value);
+  Future<void> setVoiceFor(String mode, String value) => mode == 'cli'
+      ? preferences.setString('cli_voice', value)
+      : setVoice(value);
+  int get sessionMinutes => (preferences.getInt('max_session_minutes') ?? 5)
+      .clamp(minSessionMinutes, maxSessionMinutes);
+  Future<void> setSessionMinutes(int value) => preferences.setInt(
+    'max_session_minutes',
+    value.clamp(minSessionMinutes, maxSessionMinutes),
+  );
   final http.Client _client;
   late String baseUrl, token, clientId, conversationId;
   bool get configured => token.isNotEmpty;
@@ -83,6 +105,12 @@ class BackendApi {
                       body: jsonEncode(body ?? {}),
                     ))
               .timeout(Duration(seconds: path == '/live/session' ? 55 : 22));
+      if (response.statusCode == 404 &&
+          (path.startsWith('/knowledge') || path == '/usage')) {
+        throw BackendException(
+          'Backend устарел: перезапустите сервер с новой версией.',
+        );
+      }
       final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
       if (response.statusCode >= 400) {
         throw BackendException(
@@ -125,18 +153,31 @@ class BackendApi {
   Future<Map<String, dynamic>> createSession(
     String sdp, {
     String? taskId,
+    String? replaces,
+    int? maxSeconds,
+    String? mode,
   }) async =>
       await request('POST', '/live/session', {
             'sdp': sdp,
             'conversation_id': conversationId,
+            'mode': mode ?? this.mode,
+            'voice': voiceFor(mode ?? this.mode),
+            'max_seconds': maxSeconds ?? sessionMinutes * 60,
+            'replaces': ?replaces,
             'task_id': ?taskId,
           })
           as Map<String, dynamic>;
   Future<Map<String, dynamic>> closeSession(String id) async =>
       await request('POST', '/live/$id/close') as Map<String, dynamic>;
-  Future<void> heartbeat(String id) async {
-    await request('POST', '/live/$id/heartbeat');
-  }
+  Future<Map<String, dynamic>> heartbeat(String id) async =>
+      await request('POST', '/live/$id/heartbeat') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> knowledge() async =>
+      await request('GET', '/knowledge') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> saveRules(String rules) async =>
+      await request('POST', '/knowledge/rules', {'rules': rules})
+          as Map<String, dynamic>;
+  Future<Map<String, dynamic>> usage() async =>
+      await request('GET', '/usage') as Map<String, dynamic>;
 
   Uri get eventsUri => Uri.parse(
     '$baseUrl/events',

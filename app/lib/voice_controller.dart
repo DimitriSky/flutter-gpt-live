@@ -34,6 +34,8 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
   bool _disposed = false;
   String? error;
   BackgroundTask? incoming;
+  double? totalUsd;
+  bool _wasBusy = false;
   String? _submissionText, _submissionKey;
 
   Future<void> initialize() async {
@@ -47,8 +49,55 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _changed() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    // Refresh the spending total once a voice session has finished closing.
+    if (_wasBusy && !live.busy) unawaited(refreshUsage());
+    _wasBusy = live.busy;
+    notifyListeners();
   }
+
+  Future<void> refreshUsage() async {
+    if (!api.configured || _disposed) return;
+    try {
+      final usage = await api.usage();
+      final total = usage['total_usd'];
+      if (total is num && !_disposed) {
+        totalUsd = total.toDouble();
+        notifyListeners();
+      }
+    } catch (_) {
+      // Spending is informational; never block the main flow.
+    }
+  }
+
+  /// Saves the voice; during a call the session is swapped to apply it now.
+  Future<void> setVoice(String voice) async {
+    // During a call the voice belongs to the running session's mode.
+    final mode = live.busy ? live.mode : api.mode;
+    final changed = voice != api.voiceFor(mode);
+    await api.setVoiceFor(mode, voice);
+    _changed();
+    if (changed && live.status == LiveStatus.connected) {
+      await live.switchVoice();
+    }
+  }
+
+  /// Switches between GPT-Live over the API key and Codex over the subscription.
+  Future<void> setMode(String mode) async {
+    if (live.busy) return;
+    await api.setMode(mode);
+    _changed();
+  }
+
+  Future<void> setSessionMinutes(int minutes) async {
+    await api.setSessionMinutes(minutes);
+    _changed();
+  }
+
+  Future<Map<String, dynamic>> knowledge() => api.knowledge();
+
+  /// Saves rules.md on the backend; a running voice session is updated live.
+  Future<Map<String, dynamic>> saveRules(String rules) => api.saveRules(rules);
 
   void _event(Map<String, dynamic> event) {
     if (_disposed) return;
@@ -65,6 +114,13 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
         event['session_id'] == live.sessionId &&
         !live.closing) {
       unawaited(live.end());
+    }
+    if (event['type'] == 'live.transcript' &&
+        event['session_id'] == live.sessionId) {
+      live.addTranscript(
+        event['role'] as String? ?? 'assistant',
+        event['delta'] as String? ?? '',
+      );
     }
     if (event['task'] is Map<String, dynamic>) {
       _merge(BackgroundTask.fromJson(event['task'] as Map<String, dynamic>));
@@ -93,6 +149,7 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
       }
       error = null;
       _offerIncoming();
+      unawaited(refreshUsage());
     } catch (exception) {
       if (!_disposed) error = exception.toString();
     } finally {
@@ -103,7 +160,9 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
 
   void _offerIncoming() {
     if (!active || incoming != null || _disposed) return;
-    final ready = tasks.where((t) => t.completed && !handled.contains(t.id));
+    final ready = tasks.where(
+      (t) => t.completed && !t.delivered && !handled.contains(t.id),
+    );
     if (ready.isEmpty) return;
     incoming = ready.first;
     unawaited(
@@ -141,7 +200,7 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
       if (live.busy) await live.end();
       api.conversationId = ready.conversationId;
       await api.saveIdentity();
-      await live.start(taskId: ready.id);
+      await live.start(taskId: ready.id, mode: ready.mode);
     } catch (exception) {
       error = exception.toString();
     }
@@ -205,6 +264,13 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
       events.start();
       if (api.configured) unawaited(sync());
       _offerIncoming();
+    } else if (LiveService.desktop) {
+      // macOS reports `hidden`/`inactive` as soon as another app takes focus
+      // or covers the window. Keep the call, the task events and incoming
+      // callbacks alive; only quitting the app ends the call.
+      if (state == AppLifecycleState.detached && live.busy) {
+        unawaited(live.end());
+      }
     } else if ([
       AppLifecycleState.paused,
       AppLifecycleState.hidden,

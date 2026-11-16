@@ -17,7 +17,7 @@ class VoiceApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'GPT Live',
     debugShowCheckedModeBanner: false,
-    theme: StudioTheme.light,
+    theme: ConsoleTheme.light,
     home: VoiceScreen(api: api),
   );
 }

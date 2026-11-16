@@ -19,6 +19,11 @@ void main() {
       expect(find.text('GPT Live'), findsOneWidget);
       expect(find.text('Disconnected'), findsOneWidget);
       expect(find.text('DEV_CLIENT_TOKEN'), findsOneWidget);
+      expect(find.text('База знаний'), findsOneWidget);
+      expect(find.text('Инструкции'), findsOneWidget);
+      expect(find.text('Marin'), findsOneWidget);
+      expect(find.text('5 мин'), findsWidgets);
+      expect(find.text('≈\$0.000'), findsOneWidget);
       final start = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, 'Start Conversation'),
       );
@@ -28,6 +33,21 @@ void main() {
       await tester.tap(find.text('Start Conversation'));
       await tester.pump();
       expect(find.textContaining('Укажите адрес backend'), findsOneWidget);
+      // Settings fold away and come back with an animation.
+      await tester.ensureVisible(find.byTooltip('Подключение'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Подключение'));
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(
+        find.text('DEV_CLIENT_TOKEN'),
+        findsOneWidget,
+        reason: 'still animating out',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('DEV_CLIENT_TOKEN'), findsNothing);
+      await tester.tap(find.byTooltip('Подключение'));
+      await tester.pumpAndSettle();
+      expect(find.text('DEV_CLIENT_TOKEN'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     },

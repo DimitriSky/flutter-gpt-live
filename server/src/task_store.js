@@ -72,6 +72,12 @@ export class TaskStore {
       s.tasks.push(task); return { task, created: true };
     });
   }
+  insertCodexTask(task) { return this.commit(s => { s.tasks.push(task); return task; }); }
+  taskByTurn(turnId) { return structuredClone(this.state.tasks.find(t => t.codex_turn_id === turnId)); }
+  setConversationThread(owner, id, threadId) {
+    this.commit(s => { const c = s.conversations.find(c => c.id === id && c.owner === owner); if (c) c.codex_thread_id = threadId; });
+  }
+  conversationByThread(threadId) { return structuredClone(this.state.conversations.find(c => c.codex_thread_id === threadId)); }
   updateTask(id, patch) { return this.commit(s => Object.assign(s.tasks.find(t => t.id === id), patch)); }
   saveSession(session) { return this.commit(s => { s.sessions.push(session); return session; }); }
   updateSession(id, patch) { return this.commit(s => Object.assign(s.sessions.find(t => t.id === id), patch)); }

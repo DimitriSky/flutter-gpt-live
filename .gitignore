@@ -12,3 +12,5 @@ artifacts/
 **/.idea/
 
 /dist/
+server/config/rules.default.md
+server/codex-workspace/
