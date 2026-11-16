@@ -55,6 +55,7 @@ export function readKnowledge(dir) {
     if (Buffer.byteLength(text) > MAX_KNOWLEDGE_BYTES) throw new Error(`${name} exceeds 48 KB MVP limit`);
     return text;
   };
+  ensureKnowledgeFiles(dir);
   const rules = read('rules.md');
   const sections = rules.split(/(?=^#{1,3} )/m);
   const backend = sections.filter(s => /^#{1,3} .*?(Знани|задач|анализ|поиск|выполн|knowledge|task|analysis|search)/im.test(s));
@@ -80,6 +81,7 @@ export function ensureKnowledgeFiles(dir) {
 }
 
 export function knowledgeFiles(dir) {
+  ensureKnowledgeFiles(dir);
   const read = name => {
     const file = resolve(dir, name);
     return { text: readFileSync(file, 'utf8'), updated_at: statSync(file).mtime.toISOString() };
