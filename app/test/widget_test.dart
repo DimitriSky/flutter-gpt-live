@@ -21,9 +21,13 @@ void main() {
       expect(find.text('DEV_CLIENT_TOKEN'), findsOneWidget);
       expect(find.text('База знаний'), findsOneWidget);
       expect(find.text('Инструкции'), findsOneWidget);
-      expect(find.text('Marin'), findsOneWidget);
+      expect(
+        find.text('Cove'),
+        findsOneWidget,
+        reason: 'CLI is the default mode',
+      );
       expect(find.text('5 мин'), findsWidgets);
-      expect(find.text('≈\$0.000'), findsOneWidget);
+      expect(find.text('ПОДПИСКА'), findsOneWidget, reason: 'CLI shows subscription, not \$');
       final start = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, 'Start Conversation'),
       );

@@ -34,6 +34,8 @@ void main() {
           );
         }),
       );
+      expect(api.mode, 'cli', reason: 'CLI is the default mode');
+      await api.setMode('api');
       expect(api.voice, 'marin');
       expect(api.sessionMinutes, 5);
       await api.setVoice('cedar');
@@ -127,7 +129,9 @@ void cliModeTests() {
         );
       }),
     );
-    expect(api.mode, 'api');
+    expect(api.mode, 'cli');
+    await api.setMode('api');
+    expect(api.mode, 'api', reason: 'an explicit API choice is remembered');
     await api.setMode('cli');
     await api.setVoiceFor('cli', 'sol');
     expect(api.voice, 'marin', reason: 'API voice untouched');

@@ -36,7 +36,8 @@ class BackendApi {
   /// 'api' — GPT-Live over the OpenAI API key; 'cli' — Codex app-server on
   /// the backend machine with the ChatGPT subscription.
   String get mode =>
-      preferences.getString('voice_mode') == 'cli' ? 'cli' : 'api';
+      // CLI is the default; an explicit API choice is remembered.
+      preferences.getString('voice_mode') == 'api' ? 'api' : 'cli';
   Future<void> setMode(String value) =>
       preferences.setString('voice_mode', value == 'cli' ? 'cli' : 'api');
   String get voice => preferences.getString('voice') ?? defaultVoice;
