@@ -17,6 +17,18 @@ export function codexInstructions(knowledge) {
     '\nТы фоновый агент голосового ассистента GPT Live. Твой итоговый ответ будет озвучен или прочитан с телефона: ' +
     'начинай с главного, без markdown-таблиц и длинных путей. Работай только в разрешённой рабочей папке.';
 }
+// Realtime v3 ignores `prompt`; role-bearing `initialItems` reach the voice
+// (verified on a real call 2026-11-16). Limit: 8,192 estimated tokens total.
+export const CLI_INITIAL_CHARS = 16000;
+export function cliInitialItems(knowledge, task) {
+  let rules = cliVoicePrompt(knowledge);
+  if (rules.length > CLI_INITIAL_CHARS) rules = `${rules.slice(0, CLI_INITIAL_CHARS)}\n…(правила обрезаны по лимиту голосовой сессии)`;
+  return [{ role: 'developer', text: rules }, ...(task ? [{ role: 'developer', text: cliCallbackOpening }] : [])];
+}
+export function codexRulesUpdate(knowledge) {
+  return 'Пользователь обновил инструкции в приложении. С этого момента новые правила заменяют прежние ' +
+    `правила из developer-инструкций (база знаний не изменилась):\n${knowledge.rules}`;
+}
 export const cliCallbackOpening = 'Пользователь принял звонок о готовой задаче. Начни разговор сам: кратко скажи, что задача готова, назови главный результат из последнего ответа агента и предложи обсудить детали.';
 const finalAnswer = turn => {
   const messages = (turn?.items || []).filter(i => i.type === 'agentMessage' && i.text);
@@ -167,7 +179,8 @@ export class LiveManager {
         n => n.method === 'thread/realtime/error' && isThread(n) ? new AppError(502, `Codex realtime: ${n.params.message}`, 'codex_realtime') : null);
       answer.catch(() => {});
       await this.codex.call('thread/realtime/start', { threadId, outputModality: 'audio', version: 'v3',
-        transport: { type: 'webrtc', sdp }, voice: voice || CLI_DEFAULT_VOICE, prompt: cliVoicePrompt(knowledge) });
+        transport: { type: 'webrtc', sdp }, voice: voice || CLI_DEFAULT_VOICE,
+        initialItems: cliInitialItems(knowledge, task), prompt: cliVoicePrompt(knowledge) });
       const note = await answer;
       if (!this.rateLimits) {
         // Subscription windows for the display; refreshed by account/rateLimits/updated later.
@@ -411,7 +424,15 @@ export class LiveManager {
         applied++;
       } catch { partial = true; }
     }
-    return { applied_sessions: applied, partial };
+    // #CLI-RULES-LIVE: loaded Codex threads keep their startup developer
+    // instructions, so the new rules are appended to their model history.
+    let codexThreads = 0;
+    for (const threadId of this.codex?.loaded || []) {
+      codexThreads++;
+      void this.codex.call('thread/inject_items', { threadId, items: [{ type: 'message', role: 'developer',
+        content: [{ type: 'input_text', text: codexRulesUpdate(knowledge) }] }] }, 10000).catch(() => {});
+    }
+    return { applied_sessions: applied, partial, codex_threads: codexThreads };
   }
   sweep() {
     for (const c of this.connections.values()) {

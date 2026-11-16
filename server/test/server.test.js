@@ -287,8 +287,8 @@ test('voice switch replaces the running session and keeps the conversation', asy
 });
 
 function fakeCodex() {
-  const codex = new Emitter(); codex.calls = []; codex.threads = 0;
-  codex.ensureThread = async (id) => id || `thread_${++codex.threads}`;
+  const codex = new Emitter(); codex.calls = []; codex.threads = 0; codex.loaded = new Set();
+  codex.ensureThread = async (id) => { const t = id || `thread_${++codex.threads}`; codex.loaded.add(t); return t; };
   codex.stop = () => {};
   const note = (method, params) => queueMicrotask(() => codex.emit('notification', { method, params }));
   codex.note = note;
@@ -346,4 +346,36 @@ test('CLI mode: a turn finishing during the call is marked delivered (no callbac
   codex.emit('notification', { method: 'turn/started', params: { threadId: 'thread_1', turn: { id: 'turn_live' } } });
   codex.emit('notification', { method: 'turn/completed', params: { threadId: 'thread_1', turn: { id: 'turn_live', status: 'completed', items: [{ type: 'agentMessage', phase: 'final_answer', text: 'Готово' }] } } });
   assert.equal(f.app.store.taskByTurn('turn_live').delivered, true);
+});
+
+test('CLI voice gets the rules through initialItems; callbacks add the opening (#CLI-VOICE-RULES)', async t => {
+  const codex = fakeCodex();
+  const f = await setup(t, { codex });
+  writeFileSync(resolve(f.dir, 'rules.md'), '# Роль\nГовори как Буга-мэн.\n# Знания и задачи\nНе выдумывай.');
+  const created = await f.request('/live/session', { conversation_id: 'conversation_a', sdp: 'offer', mode: 'cli' });
+  const start = codex.calls.find(c => c.method === 'thread/realtime/start').params;
+  assert.equal(start.initialItems[0].role, 'developer');
+  assert.match(start.initialItems[0].text, /Буга-мэн/);
+  assert.equal(start.initialItems.length, 1);
+  await f.request(`/live/${created.body.session.id}/close`, {});
+  codex.emit('notification', { method: 'turn/started', params: { threadId: 'thread_1', turn: { id: 'turn_cb' } } });
+  codex.emit('notification', { method: 'turn/completed', params: { threadId: 'thread_1', turn: { id: 'turn_cb', status: 'completed', items: [{ type: 'agentMessage', phase: 'final_answer', text: 'Игра готова' }] } } });
+  await f.request('/live/session', { conversation_id: 'conversation_a', sdp: 'offer', task_id: f.app.store.taskByTurn('turn_cb').id });
+  const callback = codex.calls.filter(c => c.method === 'thread/realtime/start').at(-1).params;
+  assert.equal(callback.initialItems.length, 2);
+  assert.match(callback.initialItems[1].text, /задача готова/);
+});
+
+test('saving rules injects them into loaded Codex threads (#CLI-RULES-LIVE)', async t => {
+  const codex = fakeCodex();
+  const f = await setup(t, { codex });
+  await f.request('/live/session', { conversation_id: 'conversation_a', sdp: 'offer', mode: 'cli' });
+  const saved = await f.request('/knowledge/rules', { rules: '# Роль\nГовори как пират.\n# Знания и задачи\nНе выдумывай.' });
+  assert.equal(saved.body.codex_threads, 1);
+  await tick();
+  const inject = codex.calls.find(c => c.method === 'thread/inject_items');
+  assert.equal(inject.params.threadId, 'thread_1');
+  assert.equal(inject.params.items[0].role, 'developer');
+  assert.match(inject.params.items[0].content[0].text, /пират/);
+  assert.ok(codex.calls.some(c => c.method === 'thread/realtime/appendText' && /пират/.test(c.params.text)), 'voice updated too');
 });
