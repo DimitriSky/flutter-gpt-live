@@ -72,6 +72,39 @@ export class TaskStore {
       s.tasks.push(task); return { task, created: true };
     });
   }
+  /**
+   * #SINGLE-USER migration (runs once): personal clients become one owner,
+   * the most recently used conversation becomes the shared one, and every
+   * finished task is marked acknowledged so old results never ring again.
+   * Test clients (probe_/smoke_) are left alone.
+   */
+  migrateSingleUser(owner, main) {
+    if (this.state.single_user_migrated) return null;
+    return this.commit(s => {
+      const personal = o => o !== owner && !/^(probe_|smoke_)/.test(o);
+      let moved = 0;
+      for (const list of [s.tasks, s.sessions, s.conversations]) {
+        for (const r of list) if (personal(r.owner)) { r.owner = owner; moved++; }
+      }
+      // The conversation with the most history wins (sessions, then transcripts),
+      // so a fresh device never replaces the real ongoing conversation.
+      const sessionsOf = id => s.sessions.filter(x => x.conversation_id === id).length;
+      const mainConv = s.conversations.filter(c => c.owner === owner)
+        .sort((a, b) => sessionsOf(b.id) - sessionsOf(a.id) || (b.transcripts?.length || 0) - (a.transcripts?.length || 0))[0];
+      let renamed = null;
+      if (mainConv && mainConv.id !== main && !s.conversations.some(c => c.id === main)) {
+        renamed = mainConv.id;
+        for (const r of [...s.tasks, ...s.sessions]) if (r.conversation_id === renamed) r.conversation_id = main;
+        mainConv.id = main;
+      }
+      let acknowledged = 0;
+      for (const t of s.tasks) {
+        if (t.owner === owner && ['Completed', 'Failed'].includes(t.status) && !t.acknowledged) { t.acknowledged = true; acknowledged++; }
+      }
+      s.single_user_migrated = new Date().toISOString();
+      return { moved, renamed, acknowledged };
+    });
+  }
   insertCodexTask(task) { return this.commit(s => { s.tasks.push(task); return task; }); }
   taskByTurn(turnId) { return structuredClone(this.state.tasks.find(t => t.codex_turn_id === turnId)); }
   setConversationThread(owner, id, threadId) {

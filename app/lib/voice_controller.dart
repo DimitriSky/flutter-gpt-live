@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import 'models/task.dart';
 import 'services/backend_api.dart';
+import 'services/call_keepalive.dart';
 import 'services/live_service.dart';
 import 'services/task_events_service.dart';
 
@@ -12,8 +13,15 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
     this.api, {
     LiveService? liveService,
     TaskEventsService? eventService,
+    CallKeepAlive? keepAlive,
   }) : live = liveService ?? LiveService(api),
-       events = eventService ?? TaskEventsService(api) {
+       events = eventService ?? TaskEventsService(api),
+       keepAlive = keepAlive ?? CallKeepAlive() {
+    if (CallKeepAlive.supported) {
+      this.keepAlive.onEndRequested = () {
+        if (live.busy) unawaited(live.end());
+      };
+    }
     live.addListener(_changed);
     WidgetsBinding.instance.addObserver(this);
     handled.addAll(api.preferences.getStringList('handled_tasks') ?? []);
@@ -22,6 +30,7 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
   final BackendApi api;
   final LiveService live;
   final TaskEventsService events;
+  final CallKeepAlive keepAlive;
   final Map<String, BackgroundTask> _tasks = {};
   final Set<String> handled = {};
   List<BackgroundTask> get tasks => _tasks.values.toList().reversed.toList();
@@ -52,8 +61,32 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed) return;
     // Refresh the spending total once a voice session has finished closing.
     if (_wasBusy && !live.busy) unawaited(refreshUsage());
+    _syncKeepAlive();
     _wasBusy = live.busy;
     notifyListeners();
+  }
+
+  /// #ANDROID-BG: run the foreground service while a call is connected (the
+  /// microphone permission is granted by then); stop it when the call ends.
+  void _syncKeepAlive() {
+    if (!CallKeepAlive.supported) return;
+    if (live.status == LiveStatus.connected && !keepAlive.running) {
+      unawaited(
+        keepAlive.start(
+          title: 'Идёт разговор',
+          text: live.isCli
+              ? 'GPT Live · Codex · голос ${api.voiceFor('cli')}'
+              : 'GPT Live · GPT-Live · голос ${api.voiceFor('api')}',
+        ),
+      );
+    } else if (!live.busy && keepAlive.running) {
+      unawaited(keepAlive.stop());
+      // The call ended while hidden (e.g. "End" in the notification).
+      if (!active) {
+        events.stop();
+        eventsConnected = false;
+      }
+    }
   }
 
   Future<void> refreshUsage() async {
@@ -139,6 +172,8 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     _tasks[task.id] = task;
+    // Answered or postponed on another device: stop ringing here too.
+    if (task.acknowledged && incoming?.id == task.id) incoming = null;
   }
 
   Future<void> sync() async {
@@ -164,7 +199,11 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
   void _offerIncoming() {
     if (!active || incoming != null || _disposed) return;
     final ready = tasks.where(
-      (t) => t.completed && !t.delivered && !handled.contains(t.id),
+      (t) =>
+          t.completed &&
+          !t.delivered &&
+          !t.acknowledged &&
+          !handled.contains(t.id),
     );
     if (ready.isEmpty) return;
     incoming = ready.first;
@@ -180,9 +219,18 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
     if (task != null) {
       handled.add(task.id);
       await _saveHandled();
+      unawaited(_ack(task.id));
     }
     _offerIncoming();
     _changed();
+  }
+
+  Future<void> _ack(String id) async {
+    try {
+      await api.ackTask(id);
+    } catch (_) {
+      // Older servers have no shared "seen" mark; the local one still applies.
+    }
   }
 
   Future<void> _saveHandled() => api.preferences
@@ -192,6 +240,7 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
     incoming = null;
     handled.add(task.id);
     await _saveHandled();
+    unawaited(_ack(task.id));
     _changed();
     try {
       // Fetch authoritative result before requesting the microphone or a new paid session.
@@ -274,6 +323,12 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
       if (state == AppLifecycleState.detached && live.busy) {
         unawaited(live.end());
       }
+    } else if (CallKeepAlive.supported &&
+        live.busy &&
+        state != AppLifecycleState.detached) {
+      // #ANDROID-BG: the foreground service keeps the call and its events
+      // running in the background; incoming-call overlays wait for resume.
+      active = false;
     } else if ([
       AppLifecycleState.paused,
       AppLifecycleState.hidden,
@@ -293,6 +348,8 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
     _poll?.cancel();
     _subscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
+    keepAlive.onEndRequested = null;
+    unawaited(keepAlive.stop());
     live.removeListener(_changed);
     unawaited(events.dispose());
     // Let close-session HTTP finish before closing the shared HTTP client.

@@ -14,6 +14,7 @@ void main() {
   voiceSwitchTests();
   cliModeTests();
   knowledgeEditTests();
+  sharedSeenTests();
   test(
     'voice and session limit persist and are sent with a new session',
     () async {
@@ -230,6 +231,77 @@ void knowledgeEditTests() {
       expect(seen.url.path, '/knowledge/data');
       expect(jsonDecode(seen.body), {'data': 'Проект Beta'});
       expect(result['applied_sessions'], 1);
+    },
+  );
+}
+
+void sharedSeenTests() {
+  test(
+    '#SINGLE-USER: seen on another device never rings; Later marks it seen',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'backend_token': 'a-trusted-test-token-longer-than-24',
+      });
+      final posted = <String>[];
+      final api = BackendApi(
+        await SharedPreferences.getInstance(),
+        client: MockClient((request) async {
+          if (request.method == 'POST') posted.add(request.url.path);
+          return http.Response(
+            jsonEncode({
+              'tasks': [
+                {
+                  'id': 'seen',
+                  'conversation_id': 'main',
+                  'title': 'a',
+                  'description': 'a',
+                  'status': 'Completed',
+                  'acknowledged': true,
+                },
+                {
+                  'id': 'fresh',
+                  'conversation_id': 'main',
+                  'title': 'b',
+                  'description': 'b',
+                  'status': 'Completed',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      final events = _StreamEvents(api);
+      final controller = VoiceController(
+        api,
+        liveService: _SwitchLive(api),
+        eventService: events,
+      );
+      addTearDown(controller.dispose);
+      await controller.sync();
+      expect(
+        controller.incoming?.id,
+        'fresh',
+        reason: 'only the unseen result rings',
+      );
+      // Another device answered it: the call here stops.
+      events.stream.add({
+        'type': 'task.acknowledged',
+        'task': {
+          'id': 'fresh',
+          'conversation_id': 'main',
+          'title': 'b',
+          'description': 'b',
+          'status': 'Completed',
+          'acknowledged': true,
+        },
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.incoming, isNull);
+      await controller.later();
+      await Future<void>.delayed(Duration.zero);
+      expect(posted, isEmpty, reason: 'nothing to acknowledge any more');
     },
   );
 }

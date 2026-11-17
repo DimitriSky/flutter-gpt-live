@@ -177,6 +177,42 @@ def macos_dev(master):
         img.resize((px, px), Image.LANCZOS).save(target / f"app_icon_{px}.png")
 
 
+def dev_badge(img, center_y, width_ratio):
+    """Draws a yellow DEV pill (shared by macOS and Android dev icons)."""
+    from PIL import ImageFont
+    d = ImageDraw.Draw(img)
+    s = img.size[0]
+    w, h = round(s * width_ratio), round(s * width_ratio * 0.33)
+    x0, y0 = (s - w) // 2, round(center_y - h / 2)
+    d.rounded_rectangle((x0, y0, x0 + w, y0 + h), h // 2, fill=(255, 203, 47, 255),
+                        outline=(29, 29, 27, 255), width=max(1, s // 96))
+    for path in ("/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc"):
+        try:
+            font = ImageFont.truetype(path, max(6, round(h * 0.62)))
+            break
+        except OSError:
+            font = None
+    d.text((s / 2, y0 + h / 2), "DEV", fill=(29, 29, 27, 255), font=font, anchor="mm")
+    return img
+
+
+def android_dev():
+    """#DEV-FLAVOR: debug APK icons (src/debug overrides src/main in debug builds)."""
+    main = ROOT / "android/app/src/main/res"
+    debug = ROOT / "android/app/src/debug/res"
+    for name in ANDROID:
+        out = debug / f"mipmap-{name}"
+        out.mkdir(parents=True, exist_ok=True)
+        legacy = Image.open(main / f"mipmap-{name}/ic_launcher.png").convert("RGBA")
+        big = legacy.resize((legacy.size[0] * 4,) * 2, Image.LANCZOS)
+        dev_badge(big, big.size[0] * 0.80, 0.58)
+        big.resize(legacy.size, Image.LANCZOS).save(out / "ic_launcher.png")
+        fg = Image.open(main / f"mipmap-{name}/ic_launcher_foreground.png").convert("RGBA")
+        big = fg.resize((fg.size[0] * 4,) * 2, Image.LANCZOS)
+        dev_badge(big, big.size[0] * 0.70, 0.36)  # inside the 66 dp safe zone
+        big.resize(fg.size, Image.LANCZOS).save(out / "ic_launcher_foreground.png")
+
+
 if __name__ == "__main__":
     master = macos()
     macos_dev(master)
@@ -184,4 +220,5 @@ if __name__ == "__main__":
     out.mkdir(parents=True, exist_ok=True)
     down(art(1024, 0.22), 1024).save(out / "app_icon.png")
     android()
+    android_dev()
     print("icons written")

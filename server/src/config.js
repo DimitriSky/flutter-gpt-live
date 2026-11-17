@@ -32,6 +32,9 @@ export function configuration(env = process.env) {
     // #DEV-FLAVOR: the dev server shares the knowledge base and instructions
     // with the daily server but must not change them.
     knowledgeReadOnly: env.KNOWLEDGE_READONLY === '1',
+    // #SINGLE-USER: every device with the token is the same person: one
+    // journal, one conversation (history + Codex thread), shared "seen" marks.
+    singleUser: env.SINGLE_USER === '1',
     // CLI mode: voice + agent through `codex app-server` with the user's ChatGPT login.
     codexBin: env.CODEX_BIN || 'codex',
     codexCwd: resolve(env.CODEX_CWD || resolve(root, 'codex-workspace')),

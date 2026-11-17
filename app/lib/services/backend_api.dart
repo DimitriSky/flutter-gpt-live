@@ -169,6 +169,12 @@ class BackendApi {
             'task_id': ?taskId,
           })
           as Map<String, dynamic>;
+
+  /// Marks a finished task as seen on every device (#SINGLE-USER).
+  Future<void> ackTask(String id) async {
+    await request('POST', '/tasks/$id/ack');
+  }
+
   Future<Map<String, dynamic>> closeSession(String id) async =>
       await request('POST', '/live/$id/close') as Map<String, dynamic>;
   Future<Map<String, dynamic>> heartbeat(String id) async =>

@@ -11,6 +11,9 @@ import { LiveManager, liveCost } from './live.js';
 import { CodexAppServer, CLI_VOICES, CLI_DEFAULT_VOICE } from './codex_bridge.js';
 import { mkdirSync } from 'node:fs';
 
+export const SHARED_OWNER = 'shared';
+export const SHARED_CONVERSATION = 'main';
+
 export function createApplication(config, dependencies = {}) {
   ensureKnowledgeFiles(config.configDir);
   const store = dependencies.store || new TaskStore(config.storageDir);
@@ -19,8 +22,13 @@ export function createApplication(config, dependencies = {}) {
     const expected = Buffer.from(`Bearer ${config.token}`);
     const actual = Buffer.from(request.headers.authorization || '');
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw new AppError(401, 'Неверный токен backend.');
-    return requireId(request.headers['x-client-id'], 'X-Client-ID');
+    const client = requireId(request.headers['x-client-id'], 'X-Client-ID');
+    return config.singleUser ? SHARED_OWNER : client;
   };
+  if (config.singleUser) {
+    const migrated = store.migrateSingleUser(SHARED_OWNER, SHARED_CONVERSATION);
+    if (migrated) console.log(JSON.stringify({ type: 'single_user.migrated', ...migrated }));
+  }
   const server = createServer(async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -30,7 +38,7 @@ export function createApplication(config, dependencies = {}) {
       const url = new URL(request.url, 'http://localhost');
       const path = url.pathname;
       if (request.method === 'GET' && path === '/health') return reply(200, { ok: true, api_key_configured: Boolean(config.apiKey), text_model: config.textModel });
-      if (request.method === 'GET' && path === '/tasks') return reply(200, { tasks: store.list(owner, url.searchParams.get('conversation_id')).map(t => publicTask(t)) });
+      if (request.method === 'GET' && path === '/tasks') return reply(200, { tasks: store.list(owner, config.singleUser ? null : url.searchParams.get('conversation_id')).map(t => publicTask(t)) });
       if (request.method === 'GET' && path === '/knowledge') {
         return reply(200, { ...knowledgeFiles(config.configDir), voices: VOICES, default_voice: 'marin', cli_voices: CLI_VOICES, cli_default_voice: CLI_DEFAULT_VOICE, max_live_seconds: config.maxLiveSeconds, pricing: config.pricing });
       }
@@ -70,6 +78,16 @@ export function createApplication(config, dependencies = {}) {
         const applied = live.applyKnowledge(knowledge, 'data');
         console.log(JSON.stringify({ type: 'data.updated', bytes: Buffer.byteLength(body.data), ...applied }));
         return reply(200, { ...knowledgeFiles(config.configDir), ...applied });
+      }
+      // #SINGLE-USER: all devices continue the same conversation.
+      if (config.singleUser && typeof body.conversation_id === 'string') body.conversation_id = SHARED_CONVERSATION;
+      const ack = path.match(/^\/tasks\/([a-zA-Z0-9_-]+)\/ack$/);
+      if (ack) {
+        // "Answer"/"Later" on one device silences the incoming call on the others.
+        store.task(owner, ack[1]);
+        const updated = store.updateTask(ack[1], { acknowledged: true, acknowledged_at: new Date().toISOString() });
+        tasks.emit(updated, 'task.acknowledged');
+        return reply(200, publicTask(updated));
       }
       if (path === '/tasks') {
         const result = tasks.create(owner, body); return reply(result.created ? 201 : 200, result.task);

@@ -184,13 +184,66 @@ void main() {
     },
   );
 
-  test('Android: backgrounding still ends the call', () async {
+  // #ANDROID-BG
+  test(
+    'Android: a call keeps running in the background with a foreground service',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel('gpt_live/call_service');
+      final serviceCalls = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            serviceCalls.add(call.method);
+            return true;
+          });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('flutter.baseflow.com/permissions/methods'),
+            (_) async => {17: 1},
+          );
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+      final (controller, live, _) = await make();
+      await live.start();
+      live.notifyListeners();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        serviceCalls,
+        contains('start'),
+        reason: 'service starts once connected',
+      );
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        controller.didChangeAppLifecycleState(state);
+      }
+      expect(live.ends, 0, reason: 'minimising does not end the call');
+      expect(live.status, LiveStatus.connected);
+      // "End" in the notification ends the call and stops the service.
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            channel.name,
+            channel.codec.encodeMethodCall(const MethodCall('endCall')),
+            (_) {},
+          );
+      expect(live.ends, 1);
+      live.notifyListeners();
+      await Future<void>.delayed(Duration.zero);
+      expect(serviceCalls, contains('stop'));
+    },
+  );
+
+  test('Android: without a call, backgrounding still pauses events', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     final (controller, live, _) = await make();
-    await live.start();
     controller.didChangeAppLifecycleState(AppLifecycleState.hidden);
-    expect(live.ends, 1);
     expect(controller.active, isFalse);
+    expect(live.ends, 0);
   });
 }

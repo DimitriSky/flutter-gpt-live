@@ -9,6 +9,7 @@ class BackgroundTask {
     this.error,
     this.mode = 'api',
     this.delivered = false,
+    this.acknowledged = false,
   });
   final String id, conversationId, title, description, status;
   final String? result, error;
@@ -18,6 +19,9 @@ class BackgroundTask {
 
   /// True when the result was already spoken during the call (no callback).
   final bool delivered;
+
+  /// #SINGLE-USER: answered or postponed on any device; no more calls.
+  final bool acknowledged;
   bool get completed => status == 'Completed';
   bool get terminal => completed || status == 'Failed';
   factory BackgroundTask.fromJson(Map<String, dynamic> json) => BackgroundTask(
@@ -30,5 +34,6 @@ class BackgroundTask {
     error: json['error'] as String?,
     mode: json['mode'] as String? ?? 'api',
     delivered: json['delivered'] == true,
+    acknowledged: json['acknowledged'] == true,
   );
 }

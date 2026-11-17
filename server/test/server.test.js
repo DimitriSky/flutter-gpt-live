@@ -432,3 +432,48 @@ test('dev server keeps the shared knowledge base and instructions read-only (#DE
   assert.equal(readFileSync(resolve(f.dir, 'rules.md'), 'utf8'), before);
   assert.equal((await f.request('/knowledge')).status, 200, 'reading still works');
 });
+
+test('single-user mode: devices share the journal, the conversation and "seen" marks (#SINGLE-USER)', async t => {
+  const f = await setup(t, { singleUser: true });
+  const mac = { 'X-Client-ID': 'mac_device' }, phone = { 'X-Client-ID': 'phone_device' };
+  const created = await f.request('/tasks', { ...f.taskBody, conversation_id: 'mac_conversation' }, mac);
+  assert.equal(created.status, 201);
+  const fromPhone = await f.request('/tasks', null, phone);
+  assert.deepEqual(fromPhone.body.tasks.map(x => x.id), [created.body.id], 'the phone sees the Mac task');
+  assert.equal(f.app.store.state.tasks[0].conversation_id, 'main', 'one shared conversation');
+  f.complete(); await tick(); await tick();
+  const acked = await f.request(`/tasks/${created.body.id}/ack`, {}, phone);
+  assert.equal(acked.status, 200);
+  assert.equal(acked.body.acknowledged, true);
+  const fromMac = await f.request('/tasks', null, mac);
+  assert.equal(fromMac.body.tasks[0].acknowledged, true, 'seen on the phone = seen on the Mac');
+  // "Answer" from the other device continues the task's conversation.
+  const answer = await f.request('/live/session', { conversation_id: 'phone_conversation', sdp: 'offer', task_id: created.body.id }, phone);
+  assert.equal(answer.status, 201);
+  assert.equal(f.app.store.state.sessions.at(-1).conversation_id, 'main');
+});
+
+test('single-user migration merges personal clients and marks old results as seen', () => {
+  const { config } = fixture();
+  const store = new TaskStore(config.storageDir);
+  store.commit(s => {
+    s.conversations.push({ id: 'old_conv', owner: 'mac_a', created_at: '2026-11-15T10:00:00Z', transcripts: [] },
+      { id: 'fresh_phone_conv', owner: 'phone_b', created_at: '2026-11-17T10:00:00Z', transcripts: [] },
+      { id: 'probe_conv', owner: 'probe_x', created_at: '2026-11-15T10:00:00Z', transcripts: [] });
+    s.sessions.push({ id: 's1', owner: 'mac_a', conversation_id: 'old_conv', created_at: '2026-11-16T10:00:00Z', finalization_confirmed: true },
+      { id: 's0', owner: 'mac_a', conversation_id: 'old_conv', created_at: '2026-11-16T09:00:00Z', finalization_confirmed: true },
+      { id: 's2', owner: 'phone_b', conversation_id: 'fresh_phone_conv', created_at: '2026-11-17T10:00:00Z', finalization_confirmed: true });
+    s.tasks.push({ id: 't1', owner: 'mac_a', conversation_id: 'old_conv', status: 'Completed' },
+      { id: 't2', owner: 'phone_b', conversation_id: 'other', status: 'Running' },
+      { id: 't3', owner: 'probe_x', conversation_id: 'probe_conv', status: 'Completed' });
+  });
+  const result = store.migrateSingleUser('shared', 'main');
+  assert.equal(result.renamed, 'old_conv', 'the conversation with the most history, not the newest device');
+  const byId = id => store.state.tasks.find(x => x.id === id);
+  assert.equal(byId('t1').owner, 'shared'); assert.equal(byId('t1').conversation_id, 'main'); assert.equal(byId('t1').acknowledged, true);
+  assert.equal(byId('t2').owner, 'shared'); assert.equal(byId('t2').acknowledged, undefined, 'running work still rings when done');
+  assert.equal(byId('t3').owner, 'probe_x', 'test clients stay separate');
+  assert.equal(store.state.sessions[0].conversation_id, 'main');
+  assert.equal(store.migrateSingleUser('shared', 'main'), null, 'runs once');
+  store.close();
+});

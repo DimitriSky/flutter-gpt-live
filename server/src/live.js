@@ -128,13 +128,15 @@ export class LiveManager {
     if (this.creating.has(owner) || [...this.connections.values()].some(c => c.record.owner === owner && !c.confirmed && c.record.id !== replaces)) {
       throw new AppError(409, 'Сначала завершите текущую голосовую сессию.');
     }
-    const conversationId = requireId(body.conversation_id, 'conversation_id');
+    requireId(body.conversation_id, 'conversation_id');
     requireText(body.sdp, 'sdp', 64000);
     // SDP is a wire format: preserve its terminating CRLF, never trim it.
     const sdp = body.sdp;
-    const conversation = this.store.conversation(owner, conversationId);
     const task = body.task_id ? this.store.task(owner, requireId(body.task_id, 'task_id')) : null;
-    if (task && (task.status !== 'Completed' || task.conversation_id !== conversationId)) throw new AppError(409, 'Результат этого разговора ещё не готов.');
+    if (task && task.status !== 'Completed') throw new AppError(409, 'Результат этого разговора ещё не готов.');
+    // "Answer" continues the conversation the task belongs to.
+    const conversationId = task ? task.conversation_id : body.conversation_id;
+    const conversation = this.store.conversation(owner, conversationId);
     const voice = body.voice == null || body.voice === '' ? null : body.voice;
     const mode = body.mode === 'cli' || task?.mode === 'cli' ? 'cli' : 'api';
     if (voice !== null && !(mode === 'cli' ? CLI_VOICES : VOICES).includes(voice)) throw new AppError(400, 'Неизвестный голос.', 'invalid_input');
