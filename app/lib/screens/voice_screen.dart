@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../models/task.dart';
@@ -213,9 +214,34 @@ class _VoiceScreenState extends State<VoiceScreen> {
               ),
             ),
             const SizedBox(height: 3),
-            Text(
-              'ГОЛОС · ФОНОВЫЕ ЗАДАЧИ',
-              style: _T.label.copyWith(fontSize: 9),
+            Row(
+              children: [
+                // #DEV-FLAVOR: the Debug app is "GPT Live Dev" on port 8799.
+                if (kDebugMode) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xffffcb2f),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'DEV',
+                      style: _T.label.copyWith(fontSize: 8, color: _T.ink),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Flexible(
+                  child: Text(
+                    'ГОЛОС · ФОНОВЫЕ ЗАДАЧИ',
+                    overflow: TextOverflow.ellipsis,
+                    style: _T.label.copyWith(fontSize: 9),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1493,6 +1519,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
 
   // ──────────────────────────── workspace ────────────────────────────
 
+  /// The journal shows only the newest tasks (newest first).
+  static const _journalLimit = 10;
+
   Widget _workspace() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
@@ -1591,7 +1620,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   Text('ЖУРНАЛ', style: _T.label.copyWith(fontSize: 9)),
                   const Spacer(),
                   Text(
-                    controller.tasks.length.toString().padLeft(2, '0'),
+                    // Only the latest entries are listed; the count shows them all.
+                    controller.tasks.length > _journalLimit
+                        ? '$_journalLimit ИЗ ${controller.tasks.length}'
+                        : controller.tasks.length.toString().padLeft(2, '0'),
                     style: _T.label.copyWith(fontSize: 9, color: _T.ink),
                   ),
                 ],
@@ -1639,7 +1671,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   ],
                 ),
               ),
-            for (final (i, task) in controller.tasks.indexed) ...[
+            for (final (i, task)
+                in controller.tasks.take(_journalLimit).indexed) ...[
               if (i > 0)
                 const Divider(
                   height: 1,

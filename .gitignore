@@ -17,3 +17,5 @@ server/codex-workspace/
 server/config/data.default.txt
 server/config/data.txt
 server/config/rules.md
+server/storage-dev/
+server/codex-workspace-dev/

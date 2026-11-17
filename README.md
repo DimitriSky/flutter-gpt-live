@@ -81,6 +81,23 @@ All requests need `Authorization: Bearer <DEV_CLIENT_TOKEN>` and `X-Client-ID`.
 - The shared dev token is meant for **one trusted client on a LAN**. Do not expose the server to the internet as is.
 - Cost figures are estimates; check OpenAI billing and set spending limits.
 
+## Daily app vs development (macOS)
+
+| | Daily (Release) | Development (Debug) |
+|---|---|---|
+| App | **GPT Live**, `dev.voicelive.flutterGptLive` | **GPT Live Dev**, `dev.voicelive.flutterGptLive.dev`, DEV icon and badge |
+| Server | `npm start` → port 8789, `server/storage`, `server/codex-workspace` | `npm run start:dev` → port 8799, `server/storage-dev`, `server/codex-workspace-dev` |
+| Knowledge base & instructions | editable | shared, **read-only** |
+
+Different bundle ids mean separate sandbox containers (settings, recordings, window size), so both apps run side by side and rebuilding the dev app never quits the daily one. Ship a new daily build with:
+
+```sh
+SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)" \
+DEFINES=../artifacts/macos-defines.json scripts/release_macos.sh   # → ~/Downloads/GPT Live.app
+```
+
+The script builds Release, signs nested frameworks and the app with hardened runtime and a secure timestamp, verifies the signature and entitlements and copies the app to `OUT_DIR` (default `~/Downloads`). It is not notarized.
+
 ## Builds and checks
 
 ```sh

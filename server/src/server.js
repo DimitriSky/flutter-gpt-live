@@ -48,6 +48,9 @@ export function createApplication(config, dependencies = {}) {
       let body;
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new AppError(400, 'Некорректный JSON.'); }
       if (!body || Array.isArray(body) || typeof body !== 'object') throw new AppError(400, 'Требуется JSON object.');
+      if ((path === '/knowledge/rules' || path === '/knowledge/data') && config.knowledgeReadOnly) {
+        throw new AppError(403, 'Dev-сервер: база знаний и инструкции общие с основной версией и здесь только для чтения.', 'read_only');
+      }
       if (path === '/knowledge/rules') {
         try { writeRules(config.configDir, body.rules); } catch (error) {
           if (error instanceof RangeError) throw new AppError(400, error.message === 'empty' ? 'Инструкции не могут быть пустыми.' : 'Инструкции больше 48 KB.', 'invalid_input');

@@ -28,7 +28,10 @@ export function configuration(env = process.env) {
     maxOutputTokens: integer('MAX_OUTPUT_TOKENS', 4000, 128, 4000),
     maxLiveSeconds: integer('MAX_LIVE_SECONDS', 3600, 30, 7200),
     leaseMs: integer('LIVE_LEASE_MS', 45000, 15000, 120000),
-    configDir: resolve(root, 'config'), storageDir: resolve(root, 'storage'),
+    configDir: resolve(root, 'config'), storageDir: resolve(root, env.STORAGE_DIR || 'storage'),
+    // #DEV-FLAVOR: the dev server shares the knowledge base and instructions
+    // with the daily server but must not change them.
+    knowledgeReadOnly: env.KNOWLEDGE_READONLY === '1',
     // CLI mode: voice + agent through `codex app-server` with the user's ChatGPT login.
     codexBin: env.CODEX_BIN || 'codex',
     codexCwd: resolve(env.CODEX_CWD || resolve(root, 'codex-workspace')),

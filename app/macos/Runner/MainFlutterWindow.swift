@@ -11,7 +11,7 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
     self.contentMinSize = NSSize(width: 360, height: 600)
-    self.title = "GPT Live"
+    self.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "GPT Live"
     self.appearance = NSAppearance(named: .aqua)
     self.titlebarAppearsTransparent = true
     self.titleVisibility = .hidden

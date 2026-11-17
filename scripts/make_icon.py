@@ -151,8 +151,35 @@ def android():
         '    <color name="ic_launcher_background">#1D1D1B</color>\n</resources>\n')
 
 
+def macos_dev(master):
+    """#DEV-FLAVOR: the Debug app ("GPT Live Dev") gets a yellow DEV badge."""
+    import json, shutil
+    from PIL import ImageFont
+    img = master.copy().convert("RGBA")
+    s = img.size[0]
+    d = ImageDraw.Draw(img)
+    w, h = round(s * 0.46), round(s * 0.15)
+    x0, y0 = (s - w) // 2, round(s * 0.73)
+    d.rounded_rectangle((x0, y0, x0 + w, y0 + h), h // 2, fill=(255, 203, 47, 255), outline=(29, 29, 27, 255), width=max(2, s // 128))
+    font = None
+    for path in ("/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Helvetica.ttc"):
+        try:
+            font = ImageFont.truetype(path, round(h * 0.62))
+            break
+        except OSError:
+            continue
+    d.text((s / 2, y0 + h / 2), "DEV", fill=(29, 29, 27, 255), font=font, anchor="mm")
+    src = ROOT / "macos/Runner/Assets.xcassets/AppIcon.appiconset"
+    target = ROOT / "macos/Runner/Assets.xcassets/AppIconDev.appiconset"
+    target.mkdir(exist_ok=True)
+    shutil.copy(src / "Contents.json", target / "Contents.json")
+    for px in (16, 32, 64, 128, 256, 512, 1024):
+        img.resize((px, px), Image.LANCZOS).save(target / f"app_icon_{px}.png")
+
+
 if __name__ == "__main__":
     master = macos()
+    macos_dev(master)
     out = ROOT / "assets/icon"
     out.mkdir(parents=True, exist_ok=True)
     down(art(1024, 0.22), 1024).save(out / "app_icon.png")

@@ -423,3 +423,12 @@ test('a fresh checkout creates data.txt and rules.md from the examples', () => {
   assert.equal(readFileSync(resolve(dir, 'data.txt'), 'utf8'), 'Пример базы');
   assert.equal(readFileSync(resolve(dir, 'rules.md'), 'utf8'), '# Роль\nЛичное', 'existing personal files are never overwritten');
 });
+
+test('dev server keeps the shared knowledge base and instructions read-only (#DEV-FLAVOR)', async t => {
+  const f = await setup(t, { knowledgeReadOnly: true });
+  const before = readFileSync(resolve(f.dir, 'rules.md'), 'utf8');
+  assert.equal((await f.request('/knowledge/rules', { rules: '# Роль\nДругое' })).status, 403);
+  assert.equal((await f.request('/knowledge/data', { data: 'Другое' })).status, 403);
+  assert.equal(readFileSync(resolve(f.dir, 'rules.md'), 'utf8'), before);
+  assert.equal((await f.request('/knowledge')).status, 200, 'reading still works');
+});

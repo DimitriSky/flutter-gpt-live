@@ -12,3 +12,9 @@ PRODUCT_BUNDLE_IDENTIFIER = dev.voicelive.flutterGptLive
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 dev.voicelive. All rights reserved.
+
+// #DEV-FLAVOR: the Debug build is a separate app ("GPT Live Dev") with its own
+// bundle id, sandbox container, preferences and recordings, so development
+// never replaces or quits the Release app in daily use.
+PRODUCT_NAME[config=Debug] = GPT Live Dev
+PRODUCT_BUNDLE_IDENTIFIER[config=Debug] = dev.voicelive.flutterGptLive.dev

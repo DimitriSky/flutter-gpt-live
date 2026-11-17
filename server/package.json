@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.js",
+    "start:dev": "PORT=8799 STORAGE_DIR=storage-dev CODEX_CWD=codex-workspace-dev KNOWLEDGE_READONLY=1 node --env-file-if-exists=.env src/server.js",
     "dev": "node --env-file-if-exists=.env --watch src/server.js",
     "test": "node --test test/*.test.js",
     "smoke:openai": "node --env-file-if-exists=.env scripts/smoke_openai.js",

@@ -20,7 +20,8 @@ class BackendApi {
         (const String.fromEnvironment('BACKEND_URL').isNotEmpty
             ? const String.fromEnvironment('BACKEND_URL')
             : defaultTargetPlatform == TargetPlatform.macOS
-            ? 'http://127.0.0.1:8789'
+            // #DEV-FLAVOR: "GPT Live Dev" talks to the dev server on 8799.
+            ? (kDebugMode ? 'http://127.0.0.1:8799' : 'http://127.0.0.1:8789')
             : 'http://10.0.2.2:8789');
     token =
         preferences.getString('backend_token') ??
