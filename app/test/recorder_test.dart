@@ -67,6 +67,13 @@ void main() {
     await live.stopRecording();
     expect(live.recording, isFalse);
     expect(live.lastRecording, '${dir.path}/fake.wav');
+    await Future<void>.delayed(Duration.zero);
+    final reveal = calls.where((c) => c.method == 'reveal').single;
+    expect(
+      (reveal.arguments as Map)['path'],
+      '${dir.path}/fake.wav',
+      reason: 'the saved file is revealed in Finder (#REC-REVEAL)',
+    );
     final txt = dir.listSync().whereType<File>().firstWhere(
       (f) => f.path.endsWith('.txt'),
     );

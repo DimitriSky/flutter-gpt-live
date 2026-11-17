@@ -36,8 +36,39 @@ class _VoiceScreenState extends State<VoiceScreen> {
     unawaited(controller.initialize());
   }
 
+  String? _announcedRecording;
+
   void _changed() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    // A recording was just saved (and revealed in Finder): confirm it.
+    final saved = controller.live.lastRecording;
+    if (saved != null && saved != _announcedRecording) {
+      _announcedRecording = saved;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: _T.deck,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              content: Text(
+                'Запись сохранена и показана в Finder: ${saved.split('/').last}',
+                style: const TextStyle(color: _T.deckText, height: 1.4),
+              ),
+              action: SnackBarAction(
+                label: 'Слушать',
+                textColor: _T.signal,
+                onPressed: () => controller.live.recorder.open(saved),
+              ),
+            ),
+          );
+      });
+    }
   }
 
   @override
@@ -1918,6 +1949,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
 
   Widget _stepper() {
     final minutes = widget.api.sessionMinutes;
+    // 1-minute steps up to 10 min, then 5-minute steps up to the 60-min cap.
+    final down = minutes > 10 ? 5 : 1, up = minutes >= 10 ? 5 : 1;
     Widget step(IconData icon, int delta, String tip) => IconButton(
       tooltip: tip,
       onPressed:
@@ -1935,7 +1968,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        step(Icons.remove_rounded, -1, 'Меньше на минуту'),
+        step(Icons.remove_rounded, -down, 'Меньше на $down мин'),
         SizedBox(
           width: 62,
           child: Text(
@@ -1944,7 +1977,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
             style: _T.mono.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
           ),
         ),
-        step(Icons.add_rounded, 1, 'Больше на минуту'),
+        step(Icons.add_rounded, up, 'Больше на $up мин'),
       ],
     );
   }

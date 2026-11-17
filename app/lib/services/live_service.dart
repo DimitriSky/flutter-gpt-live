@@ -92,6 +92,10 @@ class LiveService extends ChangeNotifier {
         }
       }
       lastRecording = path;
+      // Show the finished file right away (#REC-REVEAL).
+      if (path != null) {
+        unawaited(recorder.reveal(path).catchError((Object _) {}));
+      }
     } catch (error) {
       recordingError = 'Не удалось сохранить запись: $error';
     } finally {

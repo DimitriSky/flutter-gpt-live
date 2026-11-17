@@ -30,7 +30,7 @@ class BackendApi {
         preferences.getString('conversation_id') ?? const Uuid().v4();
   }
   static const defaultVoice = 'marin', defaultCliVoice = 'cove';
-  static const minSessionMinutes = 1, maxSessionMinutes = 30;
+  static const minSessionMinutes = 1, maxSessionMinutes = 60;
   final SharedPreferences preferences;
 
   /// 'api' — GPT-Live over the OpenAI API key; 'cli' — Codex app-server on

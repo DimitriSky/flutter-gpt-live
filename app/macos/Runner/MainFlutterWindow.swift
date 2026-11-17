@@ -10,19 +10,35 @@ class MainFlutterWindow: NSWindow {
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
-    self.setContentSize(NSSize(width: 1100, height: 800))
-    self.contentMinSize = NSSize(width: 400, height: 580)
+    self.contentMinSize = NSSize(width: 360, height: 600)
     self.title = "GPT Live"
     self.appearance = NSAppearance(named: .aqua)
     self.titlebarAppearsTransparent = true
     self.titleVisibility = .hidden
     self.backgroundColor = NSColor(srgbRed: 0.953, green: 0.941, blue: 0.910, alpha: 1)
-    self.center()
+    restoreOrDefaultFrame()
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     CallRecorder.shared.register(messenger: flutterViewController.engine.binaryMessenger)
 
     super.awakeFromNib()
+  }
+}
+
+extension MainFlutterWindow {
+  static let frameName = "GPTLiveMainWindow"
+
+  /// Reopens with the last size and position (AppKit saves them under the
+  /// autosave name on every move/resize). The first launch gets a phone-like
+  /// portrait window: height = 2 × width, fitted to the screen.
+  func restoreOrDefaultFrame() {
+    if !setFrameUsingName(Self.frameName) {
+      let visible = (screen ?? NSScreen.main)?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
+      let height = min(880, visible.height - 60)
+      setContentSize(NSSize(width: (height / 2).rounded(), height: height.rounded()))
+      center()
+    }
+    setFrameAutosaveName(Self.frameName)
   }
 }
 

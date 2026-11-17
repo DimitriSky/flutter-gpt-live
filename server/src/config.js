@@ -26,7 +26,7 @@ export function configuration(env = process.env) {
     maxPending: integer('MAX_PENDING_TASKS', 20, 1, 100),
     taskTimeout: integer('TASK_TIMEOUT_MS', 180000, 1000, 600000),
     maxOutputTokens: integer('MAX_OUTPUT_TOKENS', 4000, 128, 4000),
-    maxLiveSeconds: integer('MAX_LIVE_SECONDS', 1800, 30, 7200),
+    maxLiveSeconds: integer('MAX_LIVE_SECONDS', 3600, 30, 7200),
     leaseMs: integer('LIVE_LEASE_MS', 45000, 15000, 120000),
     configDir: resolve(root, 'config'), storageDir: resolve(root, 'storage'),
     // CLI mode: voice + agent through `codex app-server` with the user's ChatGPT login.
