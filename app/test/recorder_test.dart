@@ -100,28 +100,26 @@ void main() {
   });
 
   for (final platform in [TargetPlatform.macOS, TargetPlatform.android]) {
-    testWidgets(
-      'mic and record controls are ${platform == TargetPlatform.macOS ? 'shown on macOS' : 'hidden on Android'}',
-      (tester) async {
-        debugDefaultTargetPlatformOverride = platform;
-        tester.view.physicalSize = const Size(450, 2400);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
-        SharedPreferences.setMockInitialValues({});
-        await tester.pumpWidget(
-          VoiceApp(api: BackendApi(await SharedPreferences.getInstance())),
-        );
-        await tester.pump();
-        final expected = platform == TargetPlatform.macOS
-            ? findsOneWidget
-            : findsNothing;
-        expect(find.text('МИКРОФОН'), expected);
-        expect(find.text('ЗАПИСЬ'), expected);
-        expect(find.text('ЗАПИСИ'), expected);
-        await tester.pumpWidget(const SizedBox());
-        await tester.pump();
-        debugDefaultTargetPlatformOverride = null;
-      },
-    );
+    testWidgets('mic control on ${platform.name}; recording only on macOS', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      tester.view.physicalSize = const Size(450, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        VoiceApp(api: BackendApi(await SharedPreferences.getInstance())),
+      );
+      await tester.pump();
+      final mac = platform == TargetPlatform.macOS;
+      // #ANDROID-MUTE: mute on both platforms, recording on macOS only.
+      expect(find.text('МИКРОФОН'), findsOneWidget);
+      expect(find.text('ЗАПИСЬ'), mac ? findsOneWidget : findsNothing);
+      expect(find.text('ЗАПИСИ'), mac ? findsOneWidget : findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      debugDefaultTargetPlatformOverride = null;
+    });
   }
 }

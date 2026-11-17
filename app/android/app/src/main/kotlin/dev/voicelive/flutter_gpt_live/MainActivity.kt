@@ -28,6 +28,11 @@ class MainActivity : FlutterActivity() {
                         result.error("start_failed", error.message, null)
                     }
                 }
+                "update" -> {
+                    val muted = call.argument<Boolean>("muted") ?: false
+                    CallService.instance?.let { service -> runOnUiThread { service.setMuted(muted) } }
+                    result.success(true)
+                }
                 "stop" -> {
                     // stopService is allowed from the background (startService is not).
                     stopService(Intent(this, CallService::class.java))
@@ -39,10 +44,14 @@ class MainActivity : FlutterActivity() {
         CallService.onEndRequested = {
             runOnUiThread { callChannel.invokeMethod("endCall", null) }
         }
+        CallService.onMuteToggleRequested = {
+            runOnUiThread { callChannel.invokeMethod("toggleMute", null) }
+        }
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         CallService.onEndRequested = null
+        CallService.onMuteToggleRequested = null
         channel?.setMethodCallHandler(null)
         channel = null
         super.cleanUpFlutterEngine(flutterEngine)

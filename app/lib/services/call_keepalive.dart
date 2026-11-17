@@ -15,15 +15,27 @@ class CallKeepAlive {
   static bool get supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  /// Called when the user taps "End" in the notification.
-  set onEndRequested(VoidCallback? callback) {
+  bool? _shownMuted;
+
+  /// Actions from the notification: "End" and "Mute/Unmute".
+  void setHandlers({VoidCallback? onEnd, VoidCallback? onToggleMute}) {
     _channel.setMethodCallHandler(
-      callback == null
+      onEnd == null && onToggleMute == null
           ? null
           : (call) async {
-              if (call.method == 'endCall') callback();
+              if (call.method == 'endCall') onEnd?.call();
+              if (call.method == 'toggleMute') onToggleMute?.call();
             },
     );
+  }
+
+  /// Keeps the notification's mute button in sync with the app (#ANDROID-MUTE).
+  Future<void> setMuted(bool muted) async {
+    if (!supported || !running || _shownMuted == muted) return;
+    _shownMuted = muted;
+    try {
+      await _channel.invokeMethod('update', {'muted': muted});
+    } catch (_) {}
   }
 
   Future<void> start({required String title, required String text}) async {
@@ -38,6 +50,7 @@ class CallKeepAlive {
     }
     try {
       await _channel.invokeMethod('start', {'title': title, 'text': text});
+      _shownMuted = false;
     } catch (_) {
       running = false;
     }
@@ -46,6 +59,7 @@ class CallKeepAlive {
   Future<void> stop() async {
     if (!supported || !running) return;
     running = false;
+    _shownMuted = null;
     try {
       await _channel.invokeMethod('stop');
     } catch (_) {}

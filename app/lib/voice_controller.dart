@@ -18,9 +18,16 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
        events = eventService ?? TaskEventsService(api),
        keepAlive = keepAlive ?? CallKeepAlive() {
     if (CallKeepAlive.supported) {
-      this.keepAlive.onEndRequested = () {
-        if (live.busy) unawaited(live.end());
-      };
+      this.keepAlive.setHandlers(
+        onEnd: () {
+          if (live.busy) unawaited(live.end());
+        },
+        onToggleMute: () {
+          if (live.status == LiveStatus.connected) {
+            live.setMicMuted(!live.micMuted);
+          }
+        },
+      );
     }
     live.addListener(_changed);
     WidgetsBinding.instance.addObserver(this);
@@ -79,6 +86,8 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
               : 'GPT Live · GPT-Live · голос ${api.voiceFor('api')}',
         ),
       );
+    } else if (live.busy && keepAlive.running) {
+      unawaited(keepAlive.setMuted(live.micMuted));
     } else if (!live.busy && keepAlive.running) {
       unawaited(keepAlive.stop());
       // The call ended while hidden (e.g. "End" in the notification).
@@ -348,7 +357,7 @@ class VoiceController extends ChangeNotifier with WidgetsBindingObserver {
     _poll?.cancel();
     _subscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
-    keepAlive.onEndRequested = null;
+    keepAlive.setHandlers();
     unawaited(keepAlive.stop());
     live.removeListener(_changed);
     unawaited(events.dispose());

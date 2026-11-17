@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../models/task.dart';
 import '../services/backend_api.dart';
+import '../services/call_keepalive.dart';
 import '../services/call_recorder.dart';
 import '../services/live_service.dart';
 import '../voice_controller.dart';
@@ -617,30 +618,32 @@ class _VoiceScreenState extends State<VoiceScreen> {
                     : null,
               ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _toggleKey(
-                icon: live.recording
-                    ? Icons.stop_rounded
-                    : Icons.fiber_manual_record_rounded,
-                label: 'ЗАПИСЬ',
-                value: live.recordingBusy
-                    ? 'Сохраняю…'
-                    : live.recording && started != null
-                    ? 'Идёт · ${_clock(DateTime.now().difference(started))}'
-                    : 'Записать',
-                active: live.recording,
-                activeColor: _T.alert,
-                tooltip: live.recording
-                    ? 'Остановить и сохранить запись'
-                    : 'Записать разговор: вы — левый канал, ассистент — правый',
-                onTap: live.recordingBusy
-                    ? null
-                    : live.recording || connected
-                    ? live.toggleRecording
-                    : null,
+            if (CallRecorder.supported) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: _toggleKey(
+                  icon: live.recording
+                      ? Icons.stop_rounded
+                      : Icons.fiber_manual_record_rounded,
+                  label: 'ЗАПИСЬ',
+                  value: live.recordingBusy
+                      ? 'Сохраняю…'
+                      : live.recording && started != null
+                      ? 'Идёт · ${_clock(DateTime.now().difference(started))}'
+                      : 'Записать',
+                  active: live.recording,
+                  activeColor: _T.alert,
+                  tooltip: live.recording
+                      ? 'Остановить и сохранить запись'
+                      : 'Записать разговор: вы — левый канал, ассистент — правый',
+                  onTap: live.recordingBusy
+                      ? null
+                      : live.recording || connected
+                      ? live.toggleRecording
+                      : null,
+                ),
               ),
-            ),
+            ],
           ],
         ),
         if (live.recordingError != null)
@@ -1131,7 +1134,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   ],
                 ),
               ),
-              if (CallRecorder.supported) ...[
+              // Mute: macOS + Android (#ANDROID-MUTE); recording: macOS only.
+              if (CallRecorder.supported || CallKeepAlive.supported) ...[
                 const SizedBox(height: 8),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 6),

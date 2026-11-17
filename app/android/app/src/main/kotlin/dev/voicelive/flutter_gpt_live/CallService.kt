@@ -24,6 +24,9 @@ import android.os.PowerManager
  */
 class CallService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private var title = "Идёт разговор"
+    private var text = "GPT Live слушает и отвечает"
+    private var muted = false
     private var wifiLock: WifiManager.WifiLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -37,14 +40,21 @@ class CallService : Service() {
                 if (end != null) end() else stopEverything()
                 return START_NOT_STICKY
             }
+            ACTION_TOGGLE_MUTE -> {
+                // Flutter flips the microphone and calls update() back.
+                onMuteToggleRequested?.invoke()
+                return START_NOT_STICKY
+            }
             ACTION_STOP -> {
                 stopEverything()
                 return START_NOT_STICKY
             }
         }
-        val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Идёт разговор"
-        val text = intent?.getStringExtra(EXTRA_TEXT) ?: "GPT Live слушает и отвечает"
-        val notification = buildNotification(title, text)
+        intent?.getStringExtra(EXTRA_TITLE)?.let { title = it }
+        intent?.getStringExtra(EXTRA_TEXT)?.let { text = it }
+        muted = false
+        instance = this
+        val notification = buildNotification()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
@@ -67,7 +77,15 @@ class CallService : Service() {
         super.onTaskRemoved(rootIntent)
     }
 
+    /** Redraws the ongoing notification after a mute change in the app. */
+    fun setMuted(value: Boolean) {
+        muted = value
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID, buildNotification())
+    }
+
     override fun onDestroy() {
+        if (instance === this) instance = null
         releaseLocks()
         super.onDestroy()
     }
@@ -113,7 +131,7 @@ class CallService : Service() {
         wifiLock = null
     }
 
-    private fun buildNotification(title: String, text: String): Notification {
+    private fun buildNotification(): Notification {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
@@ -132,6 +150,9 @@ class CallService : Service() {
         val end = PendingIntent.getService(
             this, 1, Intent(this, CallService::class.java).setAction(ACTION_END), flags,
         )
+        val mute = PendingIntent.getService(
+            this, 2, Intent(this, CallService::class.java).setAction(ACTION_TOGGLE_MUTE), flags,
+        )
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
         } else {
@@ -140,11 +161,15 @@ class CallService : Service() {
         }
         builder
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle(title)
+            .setContentTitle(if (muted) "$title · микрофон выключен" else title)
             .setContentText(text)
+            .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setContentIntent(open)
             .setCategory(Notification.CATEGORY_CALL)
+            .addAction(
+                Notification.Action.Builder(null, if (muted) "Вкл. микрофон" else "Выкл. микрофон", mute).build()
+            )
             .addAction(
                 Notification.Action.Builder(null, "Завершить", end).build()
             )
@@ -158,6 +183,7 @@ class CallService : Service() {
         const val ACTION_START = "dev.voicelive.call.START"
         const val ACTION_END = "dev.voicelive.call.END"
         const val ACTION_STOP = "dev.voicelive.call.STOP"
+        const val ACTION_TOGGLE_MUTE = "dev.voicelive.call.TOGGLE_MUTE"
         const val EXTRA_TITLE = "title"
         const val EXTRA_TEXT = "text"
         private const val CHANNEL_ID = "call"
@@ -168,5 +194,12 @@ class CallService : Service() {
         /** Set by MainActivity; asks Flutter to end the call. */
         @Volatile
         var onEndRequested: (() -> Unit)? = null
+
+        /** Set by MainActivity; asks Flutter to flip the microphone. */
+        @Volatile
+        var onMuteToggleRequested: (() -> Unit)? = null
+
+        @Volatile
+        var instance: CallService? = null
     }
 }

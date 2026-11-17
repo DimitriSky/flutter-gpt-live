@@ -224,6 +224,17 @@ void main() {
       }
       expect(live.ends, 0, reason: 'minimising does not end the call');
       expect(live.status, LiveStatus.connected);
+      // #ANDROID-MUTE: "Mute" in the notification flips the microphone and
+      // the notification is redrawn with the new state.
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+            channel.name,
+            channel.codec.encodeMethodCall(const MethodCall('toggleMute')),
+            (_) {},
+          );
+      expect(live.micMuted, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(serviceCalls, contains('update'));
       // "End" in the notification ends the call and stops the service.
       await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .handlePlatformMessage(
